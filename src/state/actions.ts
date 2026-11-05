@@ -1,5 +1,6 @@
 import { batch } from '@preact/signals';
 import type { MediaItem, Project, ThemeId } from '../types';
+import { uid } from '../util';
 import { analyzeFile, markDuplicates, mediaKindOf } from '../media/analyze';
 import { makeDemo } from '../media/demo';
 import { buildStory, usable } from '../story/auto';
@@ -23,6 +24,7 @@ import {
   toast,
   touchMedia,
   updateProject,
+  updateClip,
 } from './store';
 
 export async function importFiles(list: { file: File; path: string }[]) {
@@ -302,4 +304,105 @@ export async function setMusicFile(f: File) {
   musicBuffer.value = null;
   updateProject((p) => ({ music: { ...p.music, kind: 'file', fileName: f.name, offset: 0 } }));
   await prepareMusic(true);
+}
+
+// ---------- Mosaïques ----------
+const isPhotoClip = (c: import('../types').Clip | undefined) => {
+  const m = c?.mediaId ? mediaMap.value.get(c.mediaId) : undefined;
+  return !!c && c.type === 'media' && m?.kind === 'photo';
+};
+const idsOf = (c: import('../types').Clip) => [c.mediaId!, ...(c.extra ?? [])];
+
+/** Assemble le plan `sourceId` dans le plan `targetId` (4 photos au maximum). */
+export function mergeClips(targetId: string, sourceId: string): boolean {
+  const p = project.value;
+  const t = p.clips.find((c) => c.id === targetId);
+  const s = p.clips.find((c) => c.id === sourceId);
+  if (!t || !s || t === s || !isPhotoClip(t) || !isPhotoClip(s)) {
+    toast('Seules des photos peuvent être assemblées sur une même image.', 'warn');
+    return false;
+  }
+  const ids = [...idsOf(t), ...idsOf(s)];
+  if (ids.length > 4) {
+    toast('Une image peut réunir 4 photos au maximum.', 'warn');
+    return false;
+  }
+  // ordre chronologique dans la mosaïque
+  ids.sort((a, b) => (mediaMap.value.get(a)?.date ?? 0) - (mediaMap.value.get(b)?.date ?? 0));
+  const merged = { ...t, mediaId: ids[0], extra: ids.slice(1), layout: null, motion: 'none' as const, duration: Math.max(t.duration, s.duration) + 0.6 };
+  commit({ ...p, clips: p.clips.filter((c) => c.id !== sourceId).map((c) => (c.id === targetId ? merged : c)) });
+  selectedClip.value = targetId;
+  toast(`${ids.length} photos réunies sur une même image.`, 'ok', 2000);
+  return true;
+}
+
+export function mergeWithNext(clipId: string) {
+  const p = project.value;
+  const i = p.clips.findIndex((c) => c.id === clipId);
+  const next = p.clips.slice(i + 1).find((c) => isPhotoClip(c));
+  if (!next || p.clips[i + 1]?.id !== next.id) return toast('Le plan suivant n’est pas une photo.', 'warn');
+  mergeClips(clipId, next.id);
+}
+
+/** Sépare une mosaïque en plans individuels. */
+export function splitCollage(clipId: string) {
+  const p = project.value;
+  const i = p.clips.findIndex((c) => c.id === clipId);
+  const c = p.clips[i];
+  if (!c?.extra?.length) return;
+  const ids = idsOf(c);
+  const d = Math.max(1.5, c.duration / ids.length + 0.8);
+  const parts = ids.map((id, k) => {
+    const m = mediaMap.value.get(id)!;
+    return {
+      ...c,
+      id: k === 0 ? c.id : uid(),
+      mediaId: id,
+      extra: undefined,
+      layout: null,
+      duration: d,
+      motion: 'auto' as const,
+      fit: m.height > m.width * 1.05 ? ('blur' as const) : ('cover' as const),
+      title: k === 0 ? c.title : null,
+      transition: k === 0 ? c.transition : ('fade' as const),
+      transitionDuration: k === 0 ? c.transitionDuration : 0.6,
+    };
+  });
+  const clips = [...p.clips];
+  clips.splice(i, 1, ...parts);
+  commit({ ...p, clips });
+}
+
+/** Retire une photo d'une mosaïque ; elle devient un plan à part, juste après. */
+export function detachFromCollage(clipId: string, mediaId: string) {
+  const p = project.value;
+  const i = p.clips.findIndex((c) => c.id === clipId);
+  const c = p.clips[i];
+  if (!c?.extra?.length) return;
+  const rest = idsOf(c).filter((id) => id !== mediaId);
+  const m = mediaMap.value.get(mediaId)!;
+  const kept = { ...c, mediaId: rest[0], extra: rest.slice(1), layout: rest.length > 1 ? c.layout : null, motion: rest.length > 1 ? c.motion : ('auto' as const) };
+  const solo = { ...c, id: uid(), mediaId, extra: undefined, layout: null, title: null, motion: 'auto' as const, fit: m.height > m.width * 1.05 ? ('blur' as const) : ('cover' as const), transition: 'fade' as const, transitionDuration: 0.6, duration: Math.max(2, c.duration * 0.6) };
+  const clips = [...p.clips];
+  clips.splice(i, 1, kept, solo);
+  commit({ ...p, clips });
+}
+
+/** Change la photo de place à l'intérieur de la mosaïque. */
+export function shiftInCollage(clipId: string, mediaId: string, dir: -1 | 1) {
+  const p = project.value;
+  const c = p.clips.find((x) => x.id === clipId);
+  if (!c) return;
+  const ids = idsOf(c);
+  const i = ids.indexOf(mediaId);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= ids.length) return;
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  updateClip(clipId, { mediaId: ids[0], extra: ids.slice(1) });
+}
+
+/** Regroupe à nouveau les photos de tout le montage selon le réglage de mosaïque. */
+export function regroupCollages(mode: 'off' | 'auto' | 'more') {
+  const p = { ...project.value, collage: mode };
+  commit({ ...p, ...buildStory(media.value, p, importOpts.value.chapterGapHours), title: p.title, subtitle: p.subtitle });
 }

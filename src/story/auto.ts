@@ -1,7 +1,7 @@
 // Montage automatique « souvenir » : chapitres temporels, sélection des meilleurs
 // plans, rythme (calé sur le tempo de la musique), transitions et titres.
 import type { Clip, MediaItem, MotionId, Project, TransitionId } from '../types';
-import { THEMES } from '../presets';
+import { ASPECTS, THEMES } from '../presets';
 import { autoTitle, formatDay, formatMonth, hashStr, rng, uid } from '../util';
 
 export interface Chapter {
@@ -132,9 +132,12 @@ export function buildStory(items: MediaItem[], project: Project, gapHours: numbe
   const motions: MotionId[] = ['zoomIn', 'panRight', 'zoomOut', 'panLeft', 'zoomIn', 'panUp', 'zoomOut', 'panDown'];
   let mi = Math.floor(rand() * motions.length);
   let ti = 0;
+  const outAspect = ASPECTS[project.aspect].w / ASPECTS[project.aspect].h;
   chs.forEach((c, ci) => {
     const picks = c.items.filter((m) => selected.has(m.id));
-    picks.forEach((m, k) => {
+    const units = groupPhotos(picks, outAspect, project.collage ?? 'auto');
+    units.forEach((unit, k) => {
+      const m = unit[0];
       const firstOfChapter = k === 0;
       let transition: TransitionId;
       if (clips.length === 1) transition = 'dipBlack';
@@ -149,6 +152,9 @@ export function buildStory(items: MediaItem[], project: Project, gapHours: numbe
         // en mode « tous les médias », la vidéo garde toute sa longueur
         duration = all_ ? len : snap(len, beat, !!beat && len > beat);
         if (trimIn + duration > m.duration) duration = Math.max(0.5, m.duration - trimIn);
+      } else if (unit.length > 1) {
+        // une mosaïque reste plus longtemps à l'écran : il y a plus à regarder
+        duration = snap(photoDur * (1 + 0.3 * (unit.length - 1)), beat, !!beat);
       } else {
         // les meilleures photos restent un peu plus longtemps
         duration = snap(photoDur * (0.85 + m.score * 0.35), beat, !!beat);
@@ -161,8 +167,9 @@ export function buildStory(items: MediaItem[], project: Project, gapHours: numbe
           trimIn,
           transition,
           transitionDuration: transition === 'cut' ? 0 : firstOfChapter ? Math.max(trans, 0.8) : trans,
-          motion: m.kind === 'video' ? 'none' : motions[mi++ % motions.length],
+          motion: m.kind === 'video' || unit.length > 1 ? 'none' : motions[mi++ % motions.length],
           fit: portraitInLandscape ? 'blur' : 'cover',
+          extra: unit.length > 1 ? unit.slice(1).map((x) => x.id) : undefined,
           chapter: ci,
           volume: m.hasAudio ? 0.7 : 0,
           title:
@@ -189,4 +196,73 @@ export function buildStory(items: MediaItem[], project: Project, gapHours: numbe
     }),
   );
   return { clips, title, subtitle };
+}
+
+/**
+ * Regroupe intelligemment des photos en mosaïques de 2 à 4 :
+ *  - photos prises à peu d'intervalle (même scène) ;
+ *  - en priorité celles dont l'orientation ne correspond pas au film
+ *    (un portrait seul dans un film paysage laisserait de grandes marges) ;
+ *  - les plus belles photos bien orientées restent seules, en plein cadre.
+ */
+export function groupPhotos(items: MediaItem[], outAspect: number, mode: 'off' | 'auto' | 'more'): MediaItem[][] {
+  if (mode === 'off') return items.map((m) => [m]);
+  const more = mode === 'more';
+  const H = 3_600_000;
+  const W1 = (more ? 8 : 3) * H; // orientation inadaptée : réunies entre elles
+  const W2 = (more ? 3 : 0.4) * H; // photos secondaires prises à quelques minutes d'écart
+  const W3 = (more ? 6 : 2) * H; // portrait isolé : rejoint sa voisine
+  const isPhoto = (m: MediaItem) => m.kind === 'photo';
+  const mismatch = (m: MediaItem) => isPhoto(m) && Math.abs(Math.log(m.width / Math.max(1, m.height) / outAspect)) > 0.45;
+  const scores = items.filter(isPhoto).map((m) => m.score).sort((a, b) => b - a);
+  const soloQ = scores[Math.floor(scores.length * (more ? 0.15 : 0.4))] ?? 1;
+  const solo = (m: MediaItem) => !mismatch(m) && m.score >= soloQ;
+  const units: MediaItem[][] = items.map((m) => [m]);
+  const photoUnit = (u: MediaItem[]) => u.every(isPhoto);
+  const first = (u: MediaItem[]) => u[0].date;
+  const last = (u: MediaItem[]) => u[u.length - 1].date;
+
+  // 1. photos d'orientation inadaptée (ex. portraits dans un film paysage) : réunies entre elles
+  const maxMis = more ? 4 : 3;
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i];
+    if (u.length !== 1 || !mismatch(u[0])) continue;
+    for (let j = i + 1; j < units.length && u.length < maxMis; j++) {
+      const v = units[j];
+      if (first(v) - last(u) > W1) break;
+      if (v.length === 1 && mismatch(v[0])) {
+        u.push(v[0]);
+        units.splice(j--, 1);
+      }
+    }
+  }
+  // 2. photos secondaires consécutives prises à peu d'intervalle
+  const maxN = more ? 4 : 3;
+  for (let i = 0; i < units.length - 1; i++) {
+    const u = units[i];
+    if (u.length !== 1 || !isPhoto(u[0]) || solo(u[0]) || mismatch(u[0])) continue;
+    while (i + 1 < units.length && u.length < maxN) {
+      const v = units[i + 1];
+      if (v.length !== 1 || !isPhoto(v[0]) || solo(v[0]) || mismatch(v[0]) || first(v) - last(u) > W2) break;
+      u.push(v[0]);
+      units.splice(i + 1, 1);
+    }
+  }
+  // 3. une photo d'orientation inadaptée restée seule rejoint sa voisine la plus proche dans le temps
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i];
+    if (u.length !== 1 || !mismatch(u[0])) continue;
+    const prev = units[i - 1],
+      next = units[i + 1];
+    const cand = [prev, next]
+      .filter((v): v is MediaItem[] => !!v && photoUnit(v) && v.length < maxN)
+      .map((v) => ({ v, gap: Math.min(Math.abs(first(v) - u[0].date), Math.abs(last(v) - u[0].date)) }))
+      .filter((x) => x.gap <= W3)
+      .sort((a, b) => a.gap - b.gap)[0];
+    if (!cand) continue;
+    cand.v.push(u[0]);
+    cand.v.sort((a, b) => a.date - b.date);
+    units.splice(i--, 1);
+  }
+  return units;
 }

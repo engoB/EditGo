@@ -328,7 +328,8 @@ export function Timeline() {
                     title={c.title?.text || m?.name || ''}
                   >
                     <span class="clip-label">
-                      {c.type === 'title' ? <Icon name="type" size={11} /> : m?.kind === 'video' ? <Icon name="video" size={11} /> : null}
+                      {c.type === 'title' ? <Icon name="type" size={11} /> : m?.kind === 'video' ? <Icon name="video" size={11} /> : c.extra?.length ? <Icon name="grid" size={11} /> : null}
+                      {c.extra?.length ? `${c.extra.length + 1} · ` : ''}
                       {c.duration.toFixed(1)}s
                     </span>
                     <i class="trim trim-l" onPointerDown={(e) => startTrim(e as PointerEvent, c, 'l')} />

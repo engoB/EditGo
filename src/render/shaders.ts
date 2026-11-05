@@ -40,6 +40,15 @@ uniform vec2 uBgCenter;
 uniform float uBlurLod;
 uniform float uDim;
 uniform vec2 uRes;
+uniform float uRadius;   // coins arrondis (px) — cases de mosaïque
+uniform float uAlpha;
+
+float roundMask() {
+  if (uRadius <= 0.0) return 1.0;
+  vec2 q = abs(vUv * uRes - uRes * 0.5) - (uRes * 0.5 - uRadius);
+  float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - uRadius;
+  return clamp(0.5 - d, 0.0, 1.0);
+}
 
 vec3 blurAt(vec2 uv) {
   vec3 c = vec3(0.0);
@@ -67,7 +76,7 @@ void main() {
   }
   vec2 uv = vec2(p.x, -p.y) * uWin + uCenter;
   if (uMode == 0) {
-    outColor = vec4(texture(uTex, clamp(uv, 0.0, 1.0)).rgb, 1.0);
+    outColor = vec4(texture(uTex, clamp(uv, 0.0, 1.0)).rgb, roundMask() * uAlpha);
     return;
   }
   vec3 bg = uMode == 1 ? blurAt(uvBg) * 0.62 : vec3(0.0);

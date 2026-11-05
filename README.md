@@ -25,6 +25,11 @@ Version autonome en un seul fichier : **https://engob.github.io/EditGo/editgo-ho
 - 6 ambiances : Cinéma, Douceur, Énergie, Argentique, Noir & blanc, Épure (étalonnage, transitions, titrage, rythme, musique).
 - Coupes calées sur le tempo de la musique.
 
+**Mosaïques (2 à 4 photos sur une même image)**
+- Regroupement automatique (réglage Jamais / Automatique / Souvent) : les portraits dans un film paysage (ou l'inverse) sont réunis entre eux ou avec leur voisine la plus proche dans le temps, les photos secondaires prises à quelques minutes d'écart sont regroupées, les plus belles photos restent en plein cadre.
+- Disposition choisie automatiquement pour rogner le moins possible (côte à côte, superposées, grande + petites, grille, colonnes…), recalculée si le format du film change ; cases arrondies sur fond flouté, apparition décalée, léger mouvement dans chaque case.
+- À la main : déposer une vignette sur une autre dans le storyboard pour les réunir ; dans l'inspecteur, choisir la disposition, changer l'ordre, retirer une photo, ajouter la suivante ou tout séparer.
+
 **Replacer une photo ou une vidéo**
 - Storyboard : vignettes numérotées à glisser-déposer (appui long sur écran tactile).
 - Dans l'inspecteur : flèches plus tôt / plus tard, numéro de position, date de prise de vue modifiable et « Replacer selon la date ».

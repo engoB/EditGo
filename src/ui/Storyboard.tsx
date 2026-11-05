@@ -2,7 +2,7 @@
 // (souris : glisser ; tactile : appui long puis glisser).
 import { useRef, useState } from 'preact/hooks';
 import { mediaMap, playhead, playing, project, selectedClip, timeline } from '../state/store';
-import { moveClipTo, nudgeClip } from '../state/actions';
+import { mergeClips, moveClipTo, nudgeClip } from '../state/actions';
 import { Icon } from './icons';
 import { formatDayShort, formatTime } from '../util';
 
@@ -12,7 +12,24 @@ export function Storyboard() {
   const { placed } = timeline.value;
   const sel = selectedClip.value;
   const grid = useRef<HTMLDivElement>(null);
-  const [drag, setDrag] = useState<{ id: string; x: number; y: number; over: number; w: number; h: number } | null>(null);
+  const [drag, setDrag] = useState<{ id: string; x: number; y: number; over: number; merge: number; w: number; h: number } | null>(null);
+
+  /** Carte survolée en son centre (dépôt = assemblage en mosaïque), sinon -1. */
+  const mergeAt = (x: number, y: number, dragId: string): number => {
+    const cards = Array.from(grid.current?.querySelectorAll<HTMLElement>('.sb-card') ?? []);
+    for (let i = 0; i < cards.length; i++) {
+      const r = cards[i].getBoundingClientRect();
+      const inX = x > r.left + r.width * 0.25 && x < r.right - r.width * 0.25;
+      if (inX && y > r.top && y < r.bottom && clips[i]?.id !== dragId) return canMerge(clips[i]?.id, dragId) ? i : -1;
+    }
+    return -1;
+  };
+  const canMerge = (a?: string, b?: string) => {
+    const ca = clips.find((c) => c.id === a),
+      cb = clips.find((c) => c.id === b);
+    const photo = (c?: typeof ca) => !!c && c.type === 'media' && !!c.mediaId && media.get(c.mediaId)?.kind === 'photo';
+    return photo(ca) && photo(cb) && 2 + (ca!.extra?.length ?? 0) + (cb!.extra?.length ?? 0) <= 4;
+  };
 
   const indexAt = (x: number, y: number): number => {
     const cards = Array.from(grid.current?.querySelectorAll<HTMLElement>('.sb-card') ?? []);
@@ -47,7 +64,7 @@ export function Storyboard() {
     const start = (x: number, y: number) => {
       active = true;
       navigator.vibrate?.(12);
-      setDrag({ id, x, y, over: index, w: rect.width, h: rect.height });
+      setDrag({ id, x, y, over: index, merge: -1, w: rect.width, h: rect.height });
     };
     if (touch) longTimer = window.setTimeout(() => start(sx, sy), 280);
     document.addEventListener('touchmove', blockScroll, { passive: false });
@@ -61,7 +78,8 @@ export function Storyboard() {
         if (dist < 6) return;
         start(ev.clientX, ev.clientY);
       }
-      setDrag((d) => (d ? { ...d, x: ev.clientX, y: ev.clientY, over: indexAt(ev.clientX, ev.clientY) } : d));
+      const mg = mergeAt(ev.clientX, ev.clientY, id);
+      setDrag((d) => (d ? { ...d, x: ev.clientX, y: ev.clientY, merge: mg, over: mg >= 0 ? -1 : indexAt(ev.clientX, ev.clientY) } : d));
       // défilement automatique près des bords
       const g = grid.current;
       if (g) {
@@ -72,8 +90,12 @@ export function Storyboard() {
     };
     const up = (ev: PointerEvent) => {
       if (active) {
-        const to = indexAt(ev.clientX, ev.clientY);
-        moveClipTo(id, to > index ? to - 1 : to);
+        const mg = mergeAt(ev.clientX, ev.clientY, id);
+        if (mg >= 0) mergeClips(clips[mg].id, id);
+        else {
+          const to = indexAt(ev.clientX, ev.clientY);
+          moveClipTo(id, to > index ? to - 1 : to);
+        }
       } else if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 10) {
         selectedClip.value = id;
         const p = placed.find((x) => x.clip.id === id);
@@ -104,7 +126,7 @@ export function Storyboard() {
   return (
     <div class="storyboard" ref={grid}>
       <p class="sb-hint">
-        <Icon name="info" size={13} /> Glissez une vignette pour la déplacer (appui long sur écran tactile). Le numéro indique l’ordre dans le film.
+        <Icon name="info" size={13} /> Glissez une vignette entre deux autres pour la déplacer, ou sur une autre photo pour les réunir sur une même image (appui long sur écran tactile).
       </p>
       <div class="sb-grid">
         {clips.map((c, i) => {
@@ -119,12 +141,24 @@ export function Storyboard() {
                   (drag?.id === c.id ? ' ghosted' : '') +
                   (c.type === 'title' ? ' sb-title' : '') +
                   (drag && drag.over === i ? ' ins-before' : '') +
+                  (drag && drag.merge === i ? ' merge-target' : '') +
                   (drag && drag.over >= clips.length && i === clips.length - 1 ? ' ins-after' : '')
                 }
                 onPointerDown={(e) => onPointerDown(e as PointerEvent, c.id, i)}
               >
                 <div class="sb-thumb">
-                  {showThumb ? <img src={m!.thumb} alt="" draggable={false} /> : <span class="sb-tt">{c.title?.text || 'Titre'}</span>}
+                  {c.extra?.length ? (
+                    <span class={'sb-mosaic n' + (c.extra.length + 1)}>
+                      {[c.mediaId!, ...c.extra].map((mid) => (
+                        <img src={media.get(mid)?.thumb} alt="" draggable={false} />
+                      ))}
+                    </span>
+                  ) : showThumb ? (
+                    <img src={m!.thumb} alt="" draggable={false} />
+                  ) : (
+                    <span class="sb-tt">{c.title?.text || 'Titre'}</span>
+                  )}
+                  {drag && drag.merge === i && <span class="sb-merge-hint">Réunir sur cette image</span>}
                   <span class="sb-num">{i + 1}</span>
                   {m?.kind === 'video' && c.type === 'media' && (
                     <span class="sb-badge">

@@ -10,7 +10,7 @@ import { applyMusicEnvelope, duckingSegments } from '../audio/envelope';
 import { ASPECTS } from '../presets';
 
 class PreviewSources implements SourceProvider {
-  images = new ImageCache(1920, 18);
+  images = new ImageCache(1920, 24);
   videos = new Map<string, HTMLVideoElement>();
   onReady: () => void = () => {};
   active = new Set<string>();
@@ -39,6 +39,14 @@ class PreviewSources implements SourceProvider {
     return th ? { key: 't:' + m.id, image: th, w: th.naturalWidth, h: th.naturalHeight, dynamic: false } : null;
   }
 
+  still(_p: Placed, m: MediaItem): SourceFrame | null {
+    const d = this.images.get(m.id);
+    if (d) return { key: 'i:' + m.id, image: d.image, w: d.w, h: d.h, dynamic: false };
+    void this.images.load(m).then(() => this.onReady());
+    const th = thumbImage(m);
+    return th ? { key: 't:' + m.id, image: th, w: th.naturalWidth, h: th.naturalHeight, dynamic: false } : null;
+  }
+
   video(p: Placed, m: MediaItem): HTMLVideoElement {
     let v = this.videos.get(p.clip.id);
     if (!v) {
@@ -60,6 +68,10 @@ class PreviewSources implements SourceProvider {
       if (p.end < t - 1 || p.start > t + 10) continue;
       const m = p.clip.mediaId ? media.get(p.clip.mediaId) : undefined;
       if (m?.kind === 'photo' && !this.images.has(m.id)) void this.images.load(m).then(() => this.onReady());
+      for (const id of p.clip.extra ?? []) {
+        const x = media.get(id);
+        if (x && !this.images.has(x.id)) void this.images.load(x).then(() => this.onReady());
+      }
       if (m?.kind === 'video' && m.file && p.clip.type === 'media' && p.start > t) {
         const v = this.video(p, m);
         if (!playing.value && Math.abs(v.currentTime - p.clip.trimIn) > 0.05 && !v.seeking) v.currentTime = p.clip.trimIn;

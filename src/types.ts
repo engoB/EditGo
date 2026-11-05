@@ -88,6 +88,10 @@ export interface Clip {
   motion: MotionId;
   fit: FitMode;
   title: TitleSpec | null;
+  /** Mosaïque : photos supplémentaires affichées avec `mediaId` (2 à 4 au total). */
+  extra?: string[];
+  /** Disposition imposée de la mosaïque (sinon automatique). */
+  layout?: string | null;
   /** Fond des cartons-titres. */
   background?: 'black' | 'blur' | 'gradient';
   chapter?: number;
@@ -118,6 +122,8 @@ export interface Project {
   photoDuration: number;
   /** 'all' : tous les médias, durée naturelle ; 'best' : meilleurs moments sur une durée cible. */
   buildMode: 'all' | 'best';
+  /** Regroupement automatique de 2 à 4 photos par image. */
+  collage: 'off' | 'auto' | 'more';
   targetLength: number; // s (mode 'best')
   music: MusicSettings;
   clips: Clip[];

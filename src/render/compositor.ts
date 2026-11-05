@@ -12,7 +12,17 @@ export interface SourceFrame {
   dynamic: boolean;
 }
 
+export interface CellDraw {
+  src: SourceFrame | null;
+  win: [number, number];
+  center: [number, number];
+  rect: [number, number, number, number]; // px, origine en haut à gauche
+  radius: number;
+  alpha: number;
+}
+
 export interface ClipDraw {
+  cells?: CellDraw[];
   src: SourceFrame | null;
   mode: number; // voir CLIP_FRAG
   win: [number, number];
@@ -100,7 +110,7 @@ export class Compositor {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-    this.clipP = this.program(CLIP_FRAG, ['uTex', 'uMode', 'uWin', 'uCenter', 'uBgWin', 'uBgCenter', 'uBlurLod', 'uDim', 'uRes']);
+    this.clipP = this.program(CLIP_FRAG, ['uTex', 'uMode', 'uWin', 'uCenter', 'uBgWin', 'uBgCenter', 'uBlurLod', 'uDim', 'uRes', 'uRadius', 'uAlpha']);
     this.transP = this.program(TRANS_FRAG, ['uA', 'uB', 'uMix', 'uType', 'uRes', 'uSeed']);
     this.postP = this.program(POST_FRAG, [
       'uSrc', 'uRes', 'uTime', 'uExposure', 'uContrast', 'uSaturation', 'uTemp', 'uTint', 'uFadeBlack', 'uSplit', 'uMono',
@@ -250,7 +260,40 @@ export class Compositor {
     gl.uniform2f(P.u.uBgCenter, d.bgCenter[0], d.bgCenter[1]);
     gl.uniform1f(P.u.uDim, d.dim);
     gl.uniform2f(P.u.uRes, this.w, this.h);
+    gl.uniform1f(P.u.uRadius, 0);
+    gl.uniform1f(P.u.uAlpha, 1);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    if (d.cells?.length) this.drawCells(d.cells);
+  }
+
+  /** Cases d'une mosaïque, dessinées par-dessus le fond dans leur propre zone. */
+  private drawCells(cells: CellDraw[]) {
+    const gl = this.gl;
+    const P = this.clipP;
+    gl.enable(gl.BLEND);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    for (const c of cells) {
+      if (!c.src || c.alpha <= 0.001) continue;
+      const [x, y, w, h] = c.rect;
+      const vx = Math.round(x),
+        vy = Math.round(this.h - (y + h)),
+        vw = Math.max(1, Math.round(w)),
+        vh = Math.max(1, Math.round(h));
+      gl.viewport(vx, vy, vw, vh);
+      const tex = this.texFor(c.src, false);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, tex.tex);
+      gl.uniform1i(P.u.uTex, 0);
+      gl.uniform1i(P.u.uMode, 0);
+      gl.uniform2f(P.u.uWin, c.win[0], c.win[1]);
+      gl.uniform2f(P.u.uCenter, c.center[0], c.center[1]);
+      gl.uniform2f(P.u.uRes, vw, vh);
+      gl.uniform1f(P.u.uRadius, c.radius);
+      gl.uniform1f(P.u.uAlpha, c.alpha);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    gl.disable(gl.BLEND);
+    gl.viewport(0, 0, this.w, this.h);
   }
 
   render(f: FrameDesc) {

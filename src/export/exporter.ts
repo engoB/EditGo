@@ -80,7 +80,7 @@ class ExportSources implements SourceProvider {
     maxSide: number,
     private seekOnly = false,
   ) {
-    this.images = new ImageCache(maxSide, 6);
+    this.images = new ImageCache(maxSide, 10);
   }
 
   private timestampsFor(p: Placed): number[] {
@@ -140,6 +140,12 @@ class ExportSources implements SourceProvider {
       if (p.clip.type === 'title' && p.clip.background !== 'blur') continue;
       const m = this.media.get(p.clip.mediaId);
       if (!m) continue;
+      for (const id of p.clip.extra ?? []) {
+        const x = this.media.get(id);
+        if (!x || (!x.file && !x.demo)) continue;
+        const d = await this.images.load(x);
+        if (d) this.current.set(p.clip.id + '|' + x.id, { key: 'xi:' + x.id, image: d.image, w: d.w, h: d.h, dynamic: false });
+      }
       if (!m.file && !m.demo) {
         this.current.set(p.clip.id, null);
         continue;
@@ -175,6 +181,10 @@ class ExportSources implements SourceProvider {
 
   frame(p: Placed): SourceFrame | null {
     return this.current.get(p.clip.id) ?? null;
+  }
+
+  still(p: Placed, m: MediaItem): SourceFrame | null {
+    return this.current.get(p.clip.id + '|' + m.id) ?? null;
   }
 
   dispose() {

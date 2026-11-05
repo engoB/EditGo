@@ -214,7 +214,7 @@ export function MediaPage() {
     const p = project.value;
     const st = buildStory(items.filter(usable), { ...p, buildMode: 'all', title: 'x', subtitle: 'x' }, opts.chapterGapHours);
     return layout(st.clips ?? []).total;
-  }, [items, project.value.theme, project.value.photoDuration, project.value.music.beatSync, project.value.music.bpm, opts.chapterGapHours]);
+  }, [items, project.value.theme, project.value.collage, project.value.aspect, project.value.photoDuration, project.value.music.beatSync, project.value.music.bpm, opts.chapterGapHours]);
 
   if (!items.length && !importing.value) return <Welcome />;
 
@@ -417,6 +417,16 @@ export function MediaPage() {
         ) : (
           <p class="side-note">Après création, allongez ou raccourcissez le film entier depuis le montage (onglet Style ou boutons − / + de la timeline).</p>
         )}
+        <h4 class="side-title">Plusieurs photos par image</h4>
+        <Segmented<'off' | 'auto' | 'more'>
+          value={project.value.collage ?? 'auto'}
+          onChange={(v) => updateProject({ collage: v })}
+          options={[
+            { value: 'off', label: 'Jamais' },
+            { value: 'auto', label: 'Automatique' },
+            { value: 'more', label: 'Souvent' },
+          ]}
+        />
         <label class="field">
           <span class="field-label">Titre (facultatif)</span>
           <input class="input" placeholder="Titre automatique selon les dates" value={project.value.title} onInput={(e) => updateProject({ title: (e.target as HTMLInputElement).value }, false)} />

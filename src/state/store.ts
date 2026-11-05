@@ -18,6 +18,7 @@ export function defaultProject(): Project {
     letterbox: th.letterbox,
     photoDuration: th.photoDuration,
     buildMode: 'all',
+    collage: 'auto',
     targetLength: 60,
     music: { kind: 'generated', mood: th.mood, fileName: '', volume: 0.8, ducking: true, beatSync: true, bpm: 84, offset: 0 },
     clips: [],

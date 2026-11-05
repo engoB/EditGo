@@ -1,6 +1,7 @@
 // Construit la description d'une image du film à l'instant t.
 import type { Clip, MediaItem, Project } from '../types';
-import type { ClipDraw, FrameDesc, SourceFrame } from './compositor';
+import type { CellDraw, ClipDraw, FrameDesc, SourceFrame } from './compositor';
+import { bestCollage } from '../story/collage';
 import { framing } from './compositor';
 import { LOOKS, THEMES } from '../presets';
 import { stateAt, type Placed } from '../story/timeline';
@@ -9,6 +10,57 @@ import { clamp, hashStr } from '../util';
 
 export interface SourceProvider {
   frame(p: Placed, media: MediaItem | undefined, t: number): SourceFrame | null;
+  /** Photo supplémentaire d'une mosaïque. */
+  still(p: Placed, media: MediaItem): SourceFrame | null;
+}
+
+/** Médias d'un plan (1 à 4). */
+export function clipMedia(c: Clip, media: Map<string, MediaItem>): MediaItem[] {
+  const ids = [c.mediaId, ...(c.extra ?? [])].filter(Boolean) as string[];
+  return ids.map((id) => media.get(id)).filter((m): m is MediaItem => !!m);
+}
+
+/** Description d'une mosaïque : fond flouté + cases animées. */
+function collageDraw(p: Placed, items: MediaItem[], t: number, W: number, fullH: number, bar: number, provider: SourceProvider, primary: SourceFrame | null, amp: number): ClipDraw {
+  // zone visible : entre les bandes cinéma éventuelles
+  const top = Math.round(bar * fullH);
+  const H = fullH - top * 2;
+  const c = p.clip;
+  const aspects = items.map((m) => m.width / Math.max(1, m.height));
+  const lay = bestCollage(aspects, W / H, c.layout);
+  const S = Math.min(W, H);
+  const gap = Math.round(S * 0.014);
+  const local = t - p.start;
+  const progress = local / Math.max(0.001, c.duration);
+  const cells: CellDraw[] = lay.rects.map((r, i) => {
+    const m = items[lay.order[i]];
+    const src = lay.order[i] === 0 ? primary : provider.still(p, m);
+    const x = gap + r[0] * (W - gap),
+      y = top + gap + r[1] * (H - gap),
+      w = r[2] * (W - gap) - gap,
+      h = r[3] * (H - gap) - gap;
+    // apparition décalée de chaque case, légère montée
+    const delay = p.tIn * 0.35 + i * 0.16;
+    const k = Math.min(1, Math.max(0, (local - delay) / 0.5));
+    const e = 1 - Math.pow(1 - k, 3);
+    const f = src
+      ? framing({ srcW: src.w, srcH: src.h, outW: w, outH: h, fit: 'cover', motion: i % 2 ? 'zoomOut' : 'zoomIn', progress, focus: m.focus, amp: amp * 0.55, id: c.id + i })
+      : { win: [1, 1] as [number, number], center: [0.5, 0.5] as [number, number] };
+    return { src, win: f.win, center: f.center, rect: [x, y + (1 - e) * S * 0.03, w, h], radius: S * 0.012, alpha: e };
+  });
+  const bg = primary
+    ? framing({ srcW: primary.w, srcH: primary.h, outW: W, outH: fullH, fit: 'cover', motion: 'none', progress, focus: items[0].focus, amp, id: c.id, titleBg: true })
+    : null;
+  return {
+    cells,
+    src: primary,
+    mode: primary ? 3 : 5,
+    win: bg?.win ?? [1, 1],
+    center: bg?.center ?? [0.5, 0.5],
+    bgWin: bg?.bgWin ?? [1, 1],
+    bgCenter: bg?.bgCenter ?? [0.5, 0.5],
+    dim: 0.32,
+  };
 }
 
 export function letterboxBar(project: Project, W: number, H: number): number {
@@ -59,6 +111,10 @@ export function buildFrame(opts: {
     const m = p.clip.mediaId ? media.get(p.clip.mediaId) : undefined;
     const needsSrc = !(p.clip.type === 'title' && p.clip.background !== 'blur');
     const src = needsSrc ? provider.frame(p, m, t) : null;
+    if (p.clip.type === 'media' && p.clip.extra?.length) {
+      const items = clipMedia(p.clip, media);
+      if (items.length > 1) return collageDraw(p, items, t, W, H, letterboxBar(project, W, H), provider, src, theme.motion);
+    }
     return clipDraw(p, m, t, W, H, src, theme.motion);
   };
   const a = mk(st.a);

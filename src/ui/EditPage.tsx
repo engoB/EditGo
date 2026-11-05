@@ -18,6 +18,8 @@ import {
 } from '../state/store';
 import { applyTheme, moveClipTo, nudgeClip, placeClipByDate, prepareMusic, rebuildStory, retimeFilm, setMediaDate, setMusicFile } from '../state/actions';
 import { retimeRange } from '../story/retime';
+import { layoutsFor, bestCollage, type Rect } from '../story/collage';
+import { detachFromCollage, mergeWithNext, regroupCollages, shiftInCollage, splitCollage } from '../state/actions';
 import type { Clip as ClipT } from '../types';
 import { Player } from './player';
 import { Timeline } from './Timeline';
@@ -155,7 +157,7 @@ function Pool() {
     selectedClip.value = c.id;
     toast('Plan ajouté au montage', 'ok', 1500);
   };
-  const used = new Set(project.value.clips.map((c) => c.mediaId));
+  const used = new Set(project.value.clips.flatMap((c) => [c.mediaId, ...(c.extra ?? [])]));
   return (
     <aside class="pool panel">
       <div class="panel-head">
@@ -189,6 +191,87 @@ const MOTIONS: { value: MotionId; label: string }[] = [
   { value: 'panDown', label: 'Panoramique bas' },
 ];
 
+function LayoutIcon({ rects, aspect }: { rects: Rect[]; aspect: number }) {
+  const W = 44,
+    H = Math.round(W / Math.max(0.5, Math.min(2.4, aspect)));
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+      {rects.map((r) => (
+        <rect x={r[0] * W + 1} y={r[1] * H + 1} width={Math.max(1, r[2] * W - 2)} height={Math.max(1, r[3] * H - 2)} rx="2" fill="currentColor" />
+      ))}
+    </svg>
+  );
+}
+
+function CollageSection({ c }: { c: Clip }) {
+  const media = mediaMap.value;
+  const ids = [c.mediaId!, ...(c.extra ?? [])];
+  const items = ids.map((id) => media.get(id)).filter(Boolean) as NonNullable<ReturnType<typeof media.get>>[];
+  const a = ASPECTS[project.value.aspect];
+  const outAspect = a.w / a.h;
+  const clips = project.value.clips;
+  const i = clips.findIndex((x) => x.id === c.id);
+  const next = clips[i + 1];
+  const nextIsPhoto = next?.type === 'media' && next.mediaId && media.get(next.mediaId)?.kind === 'photo';
+  const auto = items.length > 1 ? bestCollage(items.map((m) => m.width / m.height), outAspect) : null;
+  return (
+    <Section title={items.length > 1 ? `Mosaïque · ${items.length} photos` : 'Mosaïque'}>
+      {items.length > 1 ? (
+        <>
+          <div class="cells">
+            {items.map((m, k) => (
+              <div class="cell">
+                <img src={m.thumb} alt="" />
+                <div class="cell-act">
+                  <button class="ibtn" title="Avant" disabled={k === 0} onClick={() => shiftInCollage(c.id, m.id, -1)}>
+                    <Icon name="stepBack" size={13} />
+                  </button>
+                  <button class="ibtn" title="Retirer de la mosaïque (devient un plan à part)" onClick={() => detachFromCollage(c.id, m.id)}>
+                    <Icon name="x" size={13} />
+                  </button>
+                  <button class="ibtn" title="Après" disabled={k === items.length - 1} onClick={() => shiftInCollage(c.id, m.id, 1)}>
+                    <Icon name="stepFwd" size={13} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <span class="field-label">Disposition</span>
+          <div class="layout-grid">
+            <button class={'layout' + (!c.layout ? ' on' : '')} onClick={() => updateClip(c.id, { layout: null })} title="Choisie automatiquement selon l’orientation des photos">
+              {auto && <LayoutIcon rects={auto.rects} aspect={outAspect} />}
+              <small>Auto</small>
+            </button>
+            {layoutsFor(items.length).map((l) => (
+              <button class={'layout' + (c.layout === l.id ? ' on' : '')} onClick={() => updateClip(c.id, { layout: l.id })} title={l.label}>
+                <LayoutIcon rects={l.rects((l.s[0] + l.s[1]) / 2)} aspect={outAspect} />
+                <small>{l.label}</small>
+              </button>
+            ))}
+          </div>
+          <div class="insp-actions" style={{ padding: 0 }}>
+            {items.length < 4 && nextIsPhoto && (
+              <button class="btn btn-ghost btn-sm" onClick={() => mergeWithNext(c.id)}>
+                <Icon name="plus" size={14} /> Photo suivante
+              </button>
+            )}
+            <button class="btn btn-ghost btn-sm" onClick={() => splitCollage(c.id)}>
+              <Icon name="scissors" size={14} /> Séparer
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <button class="btn btn-ghost btn-sm btn-block" disabled={!nextIsPhoto} onClick={() => mergeWithNext(c.id)}>
+            <Icon name="grid" size={14} /> Assembler avec la photo suivante
+          </button>
+          <p class="side-note">Ou, en vue Storyboard, déposez une vignette sur une autre pour les réunir sur la même image (jusqu’à 4).</p>
+        </>
+      )}
+    </Section>
+  );
+}
+
 function ClipInspector({ c }: { c: Clip }) {
   const m = c.mediaId ? mediaMap.value.get(c.mediaId) : undefined;
   const isVideo = c.type === 'media' && m?.kind === 'video';
@@ -207,7 +290,7 @@ function ClipInspector({ c }: { c: Clip }) {
       <div class="clip-preview">
         {m?.thumb && c.background !== 'black' && c.background !== 'gradient' ? <img src={m.thumb} alt="" /> : <div class="clip-preview-ph"><Icon name="type" size={26} /></div>}
         <div>
-          <b>{c.type === 'title' ? 'Carton-titre' : m?.kind === 'video' ? 'Vidéo' : 'Photo'} · plan {idx + 1}</b>
+          <b>{c.type === 'title' ? 'Carton-titre' : m?.kind === 'video' ? 'Vidéo' : c.extra?.length ? `Mosaïque de ${c.extra.length + 1} photos` : 'Photo'} · plan {idx + 1}</b>
           <small>{m ? `${m.name} · ${new Date(m.date).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}` : 'Fond ' + (c.background === 'black' ? 'noir' : 'dégradé')}</small>
         </div>
       </div>
@@ -302,7 +385,8 @@ function ClipInspector({ c }: { c: Clip }) {
           )}
         </Section>
       )}
-      {(c.type === 'media' || c.background === 'blur') && (
+      {c.type === 'media' && m?.kind === 'photo' && <CollageSection c={c} />}
+      {(c.type === 'media' || c.background === 'blur') && !c.extra?.length && (
         <Section title="Cadrage & mouvement">
           <Select label="Mouvement (Ken Burns)" value={c.motion} options={MOTIONS} onChange={(v) => set({ motion: v })} />
           {c.type === 'media' && (
@@ -526,6 +610,24 @@ function StyleInspector() {
         )}
         <button class="btn btn-ghost btn-block btn-sm" onClick={rebuildStory}>
           <Icon name="wand" size={14} /> Recomposer le montage
+        </button>
+      </Section>
+      <Section title="Plusieurs photos par image">
+        <Segmented<'off' | 'auto' | 'more'>
+          small
+          value={p.collage ?? 'auto'}
+          onChange={(v) => updateProject({ collage: v })}
+          options={[
+            { value: 'off', label: 'Jamais' },
+            { value: 'auto', label: 'Automatique' },
+            { value: 'more', label: 'Souvent' },
+          ]}
+        />
+        <p class="side-note">
+          Réunit 2 à 4 photos prises au même moment sur une seule image, en priorité les portraits dans un film paysage. Les plus belles photos restent en plein cadre.
+        </p>
+        <button class="btn btn-ghost btn-block btn-sm" onClick={() => regroupCollages(p.collage ?? 'auto')}>
+          <Icon name="grid" size={14} /> Recomposer avec ce réglage
         </button>
       </Section>
       <Section title="Titre du film">
