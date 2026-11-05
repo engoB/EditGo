@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { mediaMap, musicBuffer, playhead, project, timeline, toast, musicBusy } from '../state/store';
 import { prepareMusic } from '../state/actions';
+import { grantPendingAccess, pendingAccess } from '../state/persist';
 import { EXPORT_PRESETS, dimsFor, ASPECTS } from '../presets';
 import type { Container, ExportJob, QualityLevel } from '../export/exporter';
 const loadExporter = () => import('../export/exporter');
@@ -45,6 +46,9 @@ export function ExportPage() {
     const { w, h } = dimsFor(aspect, pr.short);
     return { label: pr.label, width: w, height: h, fps, container, quality, audio };
   });
+  // médias du montage dont le fichier d'origine n'est pas accessible (export en basse définition sinon)
+  const usedIds = new Set(p.clips.flatMap((c) => (c.type === 'media' || c.background === 'blur' ? [c.mediaId, ...(c.extra ?? [])] : [])).filter(Boolean) as string[]);
+  const unavailable = [...usedIds].map((id) => mediaMap.value.get(id)).filter((m) => m && !m.file && !m.demo).length;
   const estBytes = jobs.reduce((s, j) => s + (j.width * j.height * j.fps * BITRATE_EST[quality] * total) / 8 + (audio ? (total * 256000) / 8 : 0), 0);
 
   const start = async () => {
@@ -81,6 +85,7 @@ export function ExportPage() {
         setDone((d) => [{ name: res.fileName, blob: res.blob, url, codec: res.codec, seconds: res.seconds, label: job.label }, ...d]);
         saveFile(res.blob, res.fileName);
         toast(`Export terminé : ${res.fileName}`, 'ok', 5000);
+        for (const w of res.warnings) toast(w, 'warn', 9000);
       } catch (e) {
         if ((e as DOMException).name === 'AbortError') toast('Export annulé', 'warn');
         else toast('Échec de l’export : ' + ((e as Error).message || e), 'error', 8000);
@@ -120,6 +125,21 @@ export function ExportPage() {
         <h2 class="page-title">
           <Icon name="download" /> Exporter le film
         </h2>
+        {unavailable > 0 && (
+          <div class="alert alert-warn">
+            <Icon name="info" />
+            <div>
+              <b>{unavailable} média(s) du montage ne sont pas accessibles</b> (fichiers déplacés, ou accès aux dossiers à réautoriser). Ils seraient exportés en basse définition à partir de leur vignette.
+              {pendingAccess.value.length > 0 && (
+                <div style={{ marginTop: '8px' }}>
+                  <button class="btn btn-primary btn-sm" onClick={() => void grantPendingAccess()}>
+                    Autoriser l’accès aux dossiers
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {!webcodecs && (
           <div class="alert">
             <Icon name="info" /> Ce navigateur ne propose pas l’encodage vidéo matériel (WebCodecs). Utilisez une version récente de Chrome, Edge, Safari (17+) ou Firefox (130+).

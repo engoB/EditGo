@@ -13,6 +13,7 @@ import {
   saveCurrent,
   saveProgress,
   saveState,
+  savedAt,
   storageEstimate,
   type ProjectMeta,
 } from '../state/persist';
@@ -233,16 +234,29 @@ export function ProjectsPanel() {
   );
 }
 
-/** Indicateur d'enregistrement (barre du haut). */
+/** Indicateur d'enregistrement (barre du haut) : état clair, barre de progression pendant la copie. */
 export function SaveIndicator() {
   const st = saveState.value;
   const prog = saveProgress.value;
+  const at = savedAt.value;
   if (!media.value.length) return null;
-  const label = prog ? `Copie des médias ${prog.done}/${prog.total}` : st === 'saving' ? 'Enregistrement…' : st === 'saved' ? 'Enregistré' : st === 'error' ? 'Échec de l’enregistrement' : 'Modifié';
+  const hhmm = at ? new Date(at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
+  const label =
+    st === 'saving' ? 'Enregistrement…' : st === 'error' ? 'Échec de l’enregistrement · réessayer' : st === 'saved' ? `Enregistré à ${hhmm}` : at ? `Modifié · enregistré à ${hhmm}` : 'Modifications en attente';
   return (
-    <button class={'save-ind save-' + st} onClick={() => void saveCurrent()} title="Projet enregistré automatiquement sur cet appareil. Cliquer pour enregistrer maintenant.">
+    <button class={'save-ind save-' + st} onClick={() => void saveCurrent()} title="Le projet est enregistré automatiquement sur cet appareil (cliquer pour enregistrer maintenant).">
       <Icon name={st === 'error' ? 'info' : st === 'saved' ? 'check' : 'save'} size={14} />
-      <span>{label}</span>
+      <span class="save-txt">
+        {label}
+        {prog && (
+          <small>
+            Copie de sécurité {prog.done}/{prog.total}
+            <i class="save-bar">
+              <i style={{ width: `${(prog.done / Math.max(1, prog.total)) * 100}%` }} />
+            </i>
+          </small>
+        )}
+      </span>
     </button>
   );
 }

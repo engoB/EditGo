@@ -166,18 +166,6 @@ function sigDistance(a: string, b: string): number {
   return d / a.length;
 }
 
-function hamming(a: string, b: string): number {
-  if (a.length !== 16 || b.length !== 16) return 64;
-  let d = 0;
-  for (let i = 0; i < 16; i += 8) {
-    let x = (parseInt(a.slice(i, i + 8), 16) ^ parseInt(b.slice(i, i + 8), 16)) >>> 0;
-    while (x) {
-      x &= x - 1;
-      d++;
-    }
-  }
-  return d;
-}
 
 async function canvasToThumb(src: CanvasImageSource, sw: number, sh: number): Promise<string> {
   const T = 360;
@@ -428,13 +416,28 @@ export function markDuplicates(items: MediaItem[], opts: ImportOptions) {
     if (ra !== rb) parent.set(rb, ra);
   };
   const strict = Math.max(2, Math.round(opts.similarity * 0.5));
+  // empreintes converties une fois en entiers (comparaison par popcount, sans relire le texte)
+  const hi = new Uint32Array(photos.length),
+    lo = new Uint32Array(photos.length),
+    ar = new Float32Array(photos.length);
+  photos.forEach((m, i) => {
+    hi[i] = parseInt(m.phash.slice(0, 8), 16) >>> 0;
+    lo[i] = parseInt(m.phash.slice(8, 16), 16) >>> 0;
+    ar[i] = m.width / Math.max(1, m.height);
+  });
+  const pop = (x: number) => {
+    x -= (x >>> 1) & 0x55555555;
+    x = (x & 0x33333333) + ((x >>> 2) & 0x33333333);
+    return (((x + (x >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
+  };
   for (let i = 0; i < photos.length; i++) {
     for (let j = i + 1; j < photos.length; j++) {
+      if (Math.abs(ar[i] - ar[j]) > 0.05) continue;
+      const d = pop((hi[i] ^ hi[j]) >>> 0) + pop((lo[i] ^ lo[j]) >>> 0);
+      if (d > opts.similarity + 8) continue;
       const a = photos[i],
         b = photos[j];
-      if (Math.abs(a.width / a.height - b.width / b.height) > 0.05) continue;
       const dt = b.date - a.date;
-      const d = hamming(a.phash, b.phash);
       const burst = dt <= 90_000;
       const sd = d <= opts.similarity + 8 ? sigDistance(a.sig, b.sig) : 255;
       // rafale : prises à quelques secondes d'intervalle et visuellement proches

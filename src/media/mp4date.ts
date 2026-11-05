@@ -77,6 +77,30 @@ export async function videoDates(file: Blob): Promise<DateCandidate[]> {
         if (rd(12) && ok(c)) out.push({ key: 'mp4-created', label: 'Création (en-tête vidéo)', t: c, rank: 2 });
         if (rd(v1 ? 20 : 16) && ok(m) && Math.abs(m - c) > 60_000) out.push({ key: 'mp4-modified', label: 'Modification (en-tête vidéo)', t: m, rank: 6 });
       }
+      // 5. pistes (tkhd / mdhd) : certaines caméras y mettent la bonne date
+      let tp = 8;
+      for (let k = 0; k < 8; k++) {
+        const trak = findChild(view, tp, view.byteLength, 'trak');
+        if (trak < 0) break;
+        const tEnd = trak + view.getUint32(trak);
+        for (const [box, inner] of [['tkhd', trak + 8], ['mdhd', findChild(view, trak + 8, tEnd, 'mdia') + 8]] as const) {
+          if (inner < 16) continue;
+          const b = findChild(view, inner, tEnd, box);
+          if (b < 0) continue;
+          const v1 = view.getUint8(b + 8) === 1;
+          const secs = v1 ? Number(view.getBigUint64(b + 12)) : view.getUint32(b + 12);
+          const t = EPOCH_1904 + secs * 1000;
+          if (secs && t > Date.UTC(1971, 0, 1) && t < Date.now() + 86_400_000 && !out.some((o) => Math.abs(o.t - t) < 2000))
+            out.push({ key: 'mp4-track', label: 'Création (piste vidéo)', t, rank: 2 });
+        }
+        tp = tEnd;
+      }
+      textDates(text, out, 'métadonnées');
+    }
+    // 6. dates écrites en clair au début ou à la fin du fichier (caméras d'action, dashcams)
+    for (const [a, b] of [[0, 512 * 1024], [Math.max(0, file.size - 512 * 1024), file.size]] as const) {
+      if (moov && a >= moov.offset && b <= moov.offset + moov.size) continue;
+      textDates(new TextDecoder('latin1').decode(await file.slice(a, b).arrayBuffer()), out, 'fichier');
     }
     for (const u of uuidXmp) {
       const text = new TextDecoder('latin1').decode(await file.slice(u.offset, u.offset + u.size).arrayBuffer());
@@ -88,6 +112,19 @@ export async function videoDates(file: Blob): Promise<DateCandidate[]> {
     /* illisible */
   }
   return out;
+}
+
+/** Dates texte « AAAA:MM:JJ HH:MM:SS » (ou / - .) présentes dans des métadonnées propriétaires. */
+function textDates(text: string, out: DateCandidate[], where: string) {
+  const re = /(20[0-4]\d)[:/\-.](0[1-9]|1[0-2])[:/\-.](0[1-9]|[12]\d|3[01])[ T_]([01]\d|2[0-3])[:.]([0-5]\d)[:.]([0-5]\d)/g;
+  let m: RegExpExecArray | null;
+  let n = 0;
+  while ((m = re.exec(text)) && n < 3) {
+    const t = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
+    if (t > Date.now() + 86_400_000 || out.some((o) => Math.abs(o.t - t) < 2000)) continue;
+    out.push({ key: 'text-' + where + '-' + n, label: `Date inscrite en clair (${where})`, t, rank: 3 });
+    n++;
+  }
 }
 
 function isoWithZone(s: string): number | undefined {

@@ -24,7 +24,8 @@ type StoredMedia = Omit<MediaItem, 'file' | 'demo' | 'thumb'> & {
   fileKey: string | null;
   fileType: string;
   lastModified: number;
-  thumbBlob: Blob | null;
+  /** Anciens projets uniquement : vignette intégrée (désormais rangée à part, une seule fois). */
+  thumbBlob?: Blob | null;
 };
 
 interface ProjectData {
@@ -39,6 +40,8 @@ interface ProjectData {
 export const currentProjectId = signal<string | null>(null);
 export const saveState = signal<'idle' | 'saving' | 'saved' | 'error'>('idle');
 export const saveProgress = signal<{ done: number; total: number } | null>(null);
+/** Heure du dernier enregistrement réussi. */
+export const savedAt = signal<number>(0);
 export const projectsRev = signal(0);
 /** Dossiers mémorisés dont l'accès doit être réautorisé (clic requis par le navigateur). */
 export const pendingAccess = signal<MediaSource[]>([]);
@@ -173,10 +176,25 @@ async function serializeMedia(items: MediaItem[]): Promise<StoredMedia[]> {
         fileKey: file ? keyOf(m) : null,
         fileType: file?.type ?? '',
         lastModified: file?.lastModified ?? 0,
-        thumbBlob: await thumbBlob(m),
       };
     }),
   );
+}
+
+/** Vignettes rangées à part, écrites une seule fois par média (et non à chaque enregistrement). */
+const thumbSaved = new Set<string>();
+async function saveThumbs(items: MediaItem[]) {
+  const todo = items.filter((m) => m.thumb && !thumbSaved.has(m.id));
+  if (!todo.length) return;
+  const blobs = await Promise.all(todo.map((m) => thumbBlob(m)));
+  const d = await db();
+  await new Promise<void>((res, rej) => {
+    const tx = d.transaction('blobs', 'readwrite');
+    todo.forEach((m, i) => blobs[i] && tx.objectStore('blobs').put(blobs[i], 'thumb:' + m.id));
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+  for (const m of todo) thumbSaved.add(m.id);
 }
 
 async function coverOf(items: MediaItem[]): Promise<Blob | null> {
@@ -251,22 +269,11 @@ async function doSave() {
       tx.onerror = () => rej(tx.error);
     });
     if (!currentProjectId.value) currentProjectId.value = id;
+    await saveThumbs(items);
     projectsRev.value++;
-    // copie des fichiers (seulement ceux qui manquent)
-    // si les accès ne peuvent pas être relus sur ce navigateur, on garde une copie de sécurité
-    const linked = new Set(handlesUnsafe.value ? [] : sources.value.filter((x) => x.handle).map((x) => x.id));
-    const todo = items.filter((m) => m.file && !(m.sourceId && linked.has(m.sourceId)) && !persisted.has(keyOf(m)));
-    if (data.music && musicFile.value) await putBlob(data.music.key, musicFile.value);
-    let done = 0;
-    for (const m of todo) {
-      if (!(await hasBlob(keyOf(m)))) {
-        saveProgress.value = { done, total: todo.length };
-        await putBlob(keyOf(m), m.file!);
-      }
-      done++;
-    }
-    saveProgress.value = null;
     saveState.value = 'saved';
+    savedAt.value = Date.now();
+    void copyMedia(items, data.music ? data.music.key : null);
   } catch (e) {
     console.error(e);
     saveProgress.value = null;
@@ -274,12 +281,53 @@ async function doSave() {
   }
 }
 
+/**
+ * Copie de sécurité des médias qui ne peuvent pas être relus autrement (fichiers importés un par un,
+ * dossiers sans accès mémorisé). Les dossiers mémorisés ne sont jamais recopiés, ni les fichiers de plus de 150 Mo.
+ */
+let copying = false;
+async function copyMedia(items: MediaItem[], musicKey: string | null) {
+  if (copying) return;
+  copying = true;
+  try {
+    if (musicKey && musicFile.value) await putBlob(musicKey, musicFile.value);
+    const linked = new Set(sources.value.filter((x) => x.handle).map((x) => x.id));
+    const todo = items.filter((m) => m.file && m.file.size <= 150 * 1024 * 1024 && !(m.sourceId && linked.has(m.sourceId)) && !persisted.has(keyOf(m)));
+    for (let i = 0; i < todo.length; i++) {
+      saveProgress.value = { done: i, total: todo.length };
+      if (!(await hasBlob(keyOf(todo[i])))) await putBlob(keyOf(todo[i]), todo[i].file!);
+    }
+  } catch (e) {
+    console.error(e);
+  } finally {
+    saveProgress.value = null;
+    copying = false;
+  }
+}
+
 async function restoreMedia(list: StoredMedia[], srcs: MediaSource[] = []): Promise<MediaItem[]> {
+  const thumbs = new Map<string, Blob>();
+  try {
+    const st = await store('blobs');
+    await Promise.all(
+      list.map(async (x) => {
+        if (x.thumbBlob) return;
+        const b = (await req(st.get('thumb:' + x.id))) as Blob | undefined;
+        if (b) {
+          thumbs.set(x.id, b);
+          thumbSaved.add(x.id);
+        }
+      }),
+    );
+  } catch {
+    /* vignettes indisponibles */
+  }
   const granted = new Map<string, boolean>();
   for (const x of srcs) if (x.handle) granted.set(x.id, await ensurePermission(x.handle, false));
   return Promise.all(
     list.map(async (s) => {
-      const { fileKey, fileType, lastModified, thumbBlob: tb, ...rest } = s;
+      const { fileKey, fileType, lastModified, thumbBlob: tb0, ...rest } = s;
+      const tb = tb0 ?? thumbs.get(s.id) ?? null;
       const item: MediaItem = { ...rest, file: null, thumb: tb ? URL.createObjectURL(tb) : '' };
       if (tb) thumbCache.set(item.thumb, tb);
       const src = s.sourceId ? srcs.find((x) => x.id === s.sourceId) : undefined;
@@ -370,6 +418,16 @@ export async function renameProject(id: string, name: string) {
 /** Supprime un projet et les fichiers que plus aucun projet n'utilise. */
 export async function deleteProject(id: string) {
   const d = await db();
+  // vignettes du projet supprimé
+  try {
+    const data = (await req((await store('data')).get(id))) as ProjectData | undefined;
+    if (data) {
+      const st = await store('blobs', 'readwrite');
+      for (const m of data.media) st.delete('thumb:' + m.id);
+    }
+  } catch {
+    /* rien */
+  }
   await new Promise<void>((res, rej) => {
     const tx = d.transaction(['meta', 'data', 'handles'], 'readwrite');
     tx.objectStore('meta').delete(id);
@@ -392,7 +450,7 @@ export async function deleteProject(id: string) {
   if (dir) {
     // @ts-expect-error itération asynchrone des entrées
     for await (const [name] of dir.entries()) if (name !== '.probe') keys.push(name);
-  } else keys.push(...((await req((await store('blobs')).getAllKeys())) as string[]));
+  } else keys.push(...((await req((await store('blobs')).getAllKeys())) as string[]).filter((k) => !String(k).startsWith('thumb:')));
   for (const k of keys) if (!used.has(k)) await deleteBlob(k);
   projectsRev.value++;
 }
@@ -415,7 +473,7 @@ export async function exportProjectFile(): Promise<{ blob: Blob; name: string }>
     savedAt: new Date().toISOString(),
     project: project.value,
     importOpts: importOpts.value,
-    media: items.map(({ thumbBlob: _t, ...m }) => (void _t, m)),
+    media: items,
   };
   const name = (project.value.title || 'projet').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w-]+/g, '-').toLowerCase();
   return { blob: new Blob([JSON.stringify(body)], { type: 'application/json' }), name: `${name || 'projet'}.editgo.json` };
@@ -465,10 +523,11 @@ export function startAutosave() {
       first = false;
       return;
     }
-    if (!media.value.length || Date.now() < quietUntil) return;
+    if (!media.peek().length || Date.now() < quietUntil) return;
     clearTimeout(timer);
-    saveState.value = saveState.value === 'saving' ? 'saving' : 'idle';
-    timer = window.setTimeout(() => void saveCurrent(), 1200);
+    // peek() : lire l'état sans s'y abonner (sinon chaque enregistrement en relançait un autre, en boucle)
+    if (saveState.peek() !== 'saving') saveState.value = 'idle';
+    timer = window.setTimeout(() => void saveCurrent(), 3000);
   });
 }
 
@@ -476,7 +535,7 @@ const GUARD = 'editgo-reading-handles';
 /** Vrai si une relecture d'accès aux dossiers a fait planter le navigateur au lancement précédent. */
 export const handlesUnsafe = signal((() => {
   try {
-    return localStorage.getItem(GUARD) === 'crashed';
+    return false;
   } catch {
     return false;
   }
@@ -484,9 +543,10 @@ export const handlesUnsafe = signal((() => {
 try {
   // un témoin resté posé = le navigateur s'est arrêté pendant la relecture
   if (localStorage.getItem(GUARD) === 'reading') {
-    localStorage.setItem(GUARD, 'crashed');
     handlesUnsafe.value = true;
   }
+  // la prochaine ouverture retentera la relecture
+  localStorage.removeItem(GUARD);
 } catch {
   /* stockage indisponible */
 }

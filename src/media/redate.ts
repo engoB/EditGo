@@ -26,8 +26,12 @@ export function sourceOfKey(key: string, kind: 'photo' | 'video'): DateSource {
 }
 
 /** Applique la date la plus fiable (sauf date corrigée à la main ou fichier Takeout). Renvoie vrai si la date change. */
+/** À incrémenter quand la lecture des dates s'améliore : les projets existants sont relus. */
+export const DATES_VERSION = 2;
+
 export function applyBest(item: MediaItem, cands: DateCandidate[]): boolean {
   item.dates = cands;
+  item.datesV = DATES_VERSION;
   if (item.dateSource === 'manual' || item.dateSource === 'sidecar' || item.dateSource === 'demo') return false;
   const best = cands[0];
   if (!best) return false;

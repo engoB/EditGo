@@ -42,6 +42,7 @@ export interface ExportJob {
 }
 
 export interface ExportResult {
+  warnings: string[];
   blob: Blob;
   fileName: string;
   codec: string;
@@ -154,22 +155,22 @@ class ExportSources implements SourceProvider {
       if (!m) continue;
       for (const id of p.clip.extra ?? []) {
         const x = this.media.get(id);
-        if (!x || (!x.file && !x.demo)) continue;
-        const d = await this.images.load(x);
-        if (d) this.current.set(p.clip.id + '|' + x.id, { key: 'xi:' + x.id, image: d.image, w: d.w, h: d.h, dynamic: false });
+        if (!x) continue;
+        const d = x.file || x.demo ? await this.images.load(x) : null;
+        this.current.set(p.clip.id + '|' + x.id, d ? { key: 'xi:' + x.id, image: d.image, w: d.w, h: d.h, dynamic: false } : await this.thumbFrame(x));
       }
       if (!m.file && !m.demo) {
-        this.current.set(p.clip.id, null);
+        this.current.set(p.clip.id, await this.thumbFrame(m));
         continue;
       }
       if (m.kind === 'photo' || p.clip.type === 'title') {
         if (m.kind === 'video') {
           // carton-titre sur fond vidéo : vignette
-          this.current.set(p.clip.id, null);
+          this.current.set(p.clip.id, await this.thumbFrame(m));
           continue;
         }
         const d = await this.images.load(m);
-        this.current.set(p.clip.id, d ? { key: 'xi:' + m.id, image: d.image, w: d.w, h: d.h, dynamic: false } : null);
+        this.current.set(p.clip.id, d ? { key: 'xi:' + m.id, image: d.image, w: d.w, h: d.h, dynamic: false } : await this.thumbFrame(m));
       } else {
         if (this.seekOnly || this.videoFallback.has(p.clip.id)) {
           this.current.set(p.clip.id, await this.seekFallback(p, m, t));
@@ -180,9 +181,9 @@ class ExportSources implements SourceProvider {
           const r = await it.next();
           const wc = r.done ? null : r.value;
           if (wc) this.current.set(p.clip.id, { key: 'xv:' + p.clip.id, image: wc.canvas as TexImageSource, w: wc.canvas.width, h: wc.canvas.height, dynamic: true });
-          else this.current.set(p.clip.id, this.lastFrame.get(p.clip.id) ?? null);
+          else this.current.set(p.clip.id, this.lastFrame.get(p.clip.id) ?? (await this.thumbFrame(m)));
         } catch {
-          this.current.set(p.clip.id, await this.seekFallback(p, m, t));
+          this.current.set(p.clip.id, (await this.seekFallback(p, m, t).catch(() => null)) ?? (await this.thumbFrame(m)));
         }
         const cur = this.current.get(p.clip.id);
         if (cur) this.lastFrame.set(p.clip.id, cur);
@@ -190,6 +191,36 @@ class ExportSources implements SourceProvider {
     }
   }
   private lastFrame = new Map<string, SourceFrame>();
+  private thumbs = new Map<string, HTMLImageElement | null>();
+  /** Médias rendus avec leur vignette faute de fichier lisible. */
+  fallbacks = new Set<string>();
+
+  /** Vignette du média (repli quand le fichier est absent ou illisible : jamais d'image noire). */
+  private async thumbFrame(m: MediaItem): Promise<SourceFrame | null> {
+    this.fallbacks.add(m.id);
+    if (!this.thumbs.has(m.id)) {
+      let im: HTMLImageElement | null = null;
+      if (m.thumb) {
+        im = new Image();
+        im.src = m.thumb;
+        try {
+          await im.decode();
+        } catch {
+          im = null;
+        }
+      }
+      this.thumbs.set(m.id, im);
+    }
+    const im = this.thumbs.get(m.id);
+    return im ? { key: 'xt:' + m.id, image: im, w: im.naturalWidth, h: im.naturalHeight, dynamic: false } : null;
+  }
+
+  /** Clés de textures utilisées par l'image courante. */
+  activeKeys(): Set<string> {
+    const k = new Set<string>();
+    for (const f of this.current.values()) if (f) k.add(f.key);
+    return k;
+  }
 
   frame(p: Placed): SourceFrame | null {
     return this.current.get(p.clip.id) ?? null;
@@ -243,10 +274,19 @@ export async function runExport(opts: {
     if (!acodec) opts.onProgress(0, 'Aucun encodeur audio disponible : export sans son');
   }
 
+  // Rendu WebGL copié dans un canvas 2D encodé : si le contexte graphique est perdu
+  // (mémoire GPU, pilote), on recrée le compositeur sans interrompre l'export.
   const canvas = document.createElement('canvas');
-  const comp = new Compositor(canvas, { preserve: true });
-  comp.maxCached = 12;
-  comp.resize(W, H);
+  canvas.width = W;
+  canvas.height = H;
+  const out2d = canvas.getContext('2d', { alpha: false })!;
+  let comp = newComp();
+  function newComp() {
+    const c = new Compositor(document.createElement('canvas'), { preserve: true });
+    c.maxCached = 10;
+    c.resize(W, H);
+    return c;
+  }
   const overlayCanvas = document.createElement('canvas');
   const overlay = { canvas: overlayCanvas, ctx: overlayCanvas.getContext('2d')! };
   const frames = Math.max(1, Math.round(total * job.fps));
@@ -277,12 +317,24 @@ export async function runExport(opts: {
     }
     const dt = 1 / job.fps;
     let lastUi = 0;
+    let lost = 0;
     for (let i = 0; i < frames; i++) {
       if (signal.aborted) throw new DOMException('Annulé', 'AbortError');
       const t = i * dt;
       await sources.prepare(t, maxSide);
       const fd = buildFrame({ project, media, placed, total, t, W, H, provider: sources, overlay });
-      comp.render(fd);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (comp.lost || comp.gl.isContextLost()) {
+          comp.dispose();
+          await new Promise((r) => setTimeout(r, 300));
+          comp = newComp();
+          lost++;
+        }
+        comp.render(fd);
+        if (!comp.lost && !comp.gl.isContextLost()) break;
+      }
+      comp.retainOnly(sources.activeKeys());
+      out2d.drawImage(comp.canvas as HTMLCanvasElement, 0, 0, W, H);
       await videoSource.add(t, dt);
       const now = performance.now();
       if (now - lastUi > 120 || i === frames - 1) {
@@ -307,6 +359,9 @@ export async function runExport(opts: {
   return {
     blob: new Blob([buf], { type: mime }),
     fileName: `${safe || 'souvenir'}-${W}x${H}-${job.fps}fps.${job.container}`,
+    warnings: [
+      ...(sources.fallbacks.size ? [`${sources.fallbacks.size} média(s) introuvable(s) ou illisible(s) rendu(s) avec leur vignette`] : []),
+    ],
     codec: CODEC_LABEL[vcodec] + (acodec ? ` + ${CODEC_LABEL[acodec]}${abitrate ? ' ' + abitrate / 1000 + ' kbit/s' : ''}` : job.audio ? ' (sans son : aucun encodeur audio)' : ''),
     seconds: (performance.now() - t0) / 1000,
   };

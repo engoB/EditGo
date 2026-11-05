@@ -3,7 +3,7 @@ import type { MediaItem, MediaSource, Project, ThemeId } from '../types';
 import { uid } from '../util';
 import { analyzeFile, markDuplicates, mediaKindOf } from '../media/analyze';
 import { junkReason, readSidecar, refineDates, sidecarKey } from '../media/dates';
-import { applyBest, collectDates, sourceOfKey } from '../media/redate';
+import { DATES_VERSION, applyBest, collectDates, sourceOfKey } from '../media/redate';
 import { ensurePermission, groupByRoot, newSource, pickFolderHandle, scanHandle, type ScanEntry } from '../media/sources';
 import { makeDemo } from '../media/demo';
 import { buildStory, usable } from '../story/auto';
@@ -626,7 +626,7 @@ function afterDateChange(msg?: string) {
 
 /** Relit les dates dans les fichiers (projets créés avant l'amélioration, ou à la demande). */
 export async function rereadDates(onlyMissing: boolean) {
-  const list = media.value.filter((m) => m.file && !m.demo && (!onlyMissing || !m.dates));
+  const list = media.value.filter((m) => m.file && !m.demo && (!onlyMissing || !m.dates || (m.datesV ?? 1) < DATES_VERSION));
   if (!list.length) return;
   importing.value = { done: 0, total: list.length, label: 'Relecture des dates…' };
   let changed = 0;

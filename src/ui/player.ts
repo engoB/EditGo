@@ -1,5 +1,5 @@
 // Moteur d'aperçu temps réel : rendu WebGL, lecture synchronisée vidéo + musique.
-import { effect } from '@preact/signals';
+import { effect, untracked } from '@preact/signals';
 import { Compositor, type SourceFrame } from '../render/compositor';
 import { buildFrame, type SourceProvider } from '../render/frame';
 import { ImageCache, thumbImage } from '../render/images';
@@ -138,6 +138,7 @@ export class Player {
   private disposers: (() => void)[] = [];
   private box = { w: 640, h: 360 };
   quality = 1;
+  private renderMs = 8;
 
   constructor(readonly canvas: HTMLCanvasElement) {
     this.comp = new Compositor(canvas);
@@ -154,8 +155,8 @@ export class Player {
       }),
       effect(() => {
         const isPlaying = playing.value;
-        if (isPlaying) this.start();
-        else this.stop();
+        // untracked : start() lit la tête de lecture ; sans cela, chaque image relançait la lecture
+        untracked(() => (isPlaying ? this.start() : this.stop()));
       }),
       effect(() => {
         this.src.gc(timeline.value.placed);
@@ -229,6 +230,7 @@ export class Player {
   }
 
   private stop() {
+    this.quality = 1;
     this.stopMusic();
     this.stopDecAudio();
     for (const dv of this.src.decoded.values()) dv.stop();
@@ -366,8 +368,16 @@ export class Player {
     const t = Math.min(playhead.value, Math.max(0, total - 0.001));
     const media = mediaMap.value;
     this.src.prefetch(placed, t, media);
+    const t0 = performance.now();
     const fd = buildFrame({ project: project.value, media, placed, total, t, W: size.w, H: size.h, provider: this.src, overlay: this.overlay });
     this.comp.render(fd);
+    // résolution adaptative pendant la lecture : fluidité d'abord sur les machines modestes
+    if (playing.value) {
+      const ms = performance.now() - t0;
+      this.renderMs = this.renderMs * 0.9 + ms * 0.1;
+      if (this.renderMs > 18 && this.quality > 0.5) this.quality = Math.max(0.5, this.quality * 0.85);
+      else if (this.renderMs < 7 && this.quality < 1) this.quality = Math.min(1, this.quality * 1.05);
+    }
   }
 
   /** Image courante en PNG (aperçu). */

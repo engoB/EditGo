@@ -13,13 +13,13 @@ Version autonome en un seul fichier : **https://engob.github.io/EditGo/editgo-ho
 - Datation, de la plus fiable à la moins fiable : EXIF / métadonnées vidéo (fuseau Apple compris), fichier JSON Google Takeout (`photoTakenTime`), date et heure dans le nom (`IMG_20240512_…`, `PXL_…`, WhatsApp, captures, horodatages Telegram/Signal), numérotation de l'appareil (`IMG_4203` placée entre `IMG_4201` et `IMG_4207` déjà datées), nom du dossier (« 2023-07 Vacances », « Mai 2021 », « 2022/05 »), date du fichier. La source de chaque date est indiquée et corrigeable.
 - Toutes les dates inscrites dans chaque fichier sont lues et listées dans la visionneuse : EXIF (prise de vue, numérisation, modification), XMP (Lightroom, Photoshop), en-tête vidéo, Apple QuickTime, ©day, AVCHD. La date de modification (retouche, export) n'est retenue qu'en dernier recours. « Utiliser » / « Tout le dossier » pour choisir une autre date, « Décaler tout le dossier » pour corriger un appareil dont l'horloge était mal réglée, « Relire les dates des fichiers » pour un projet existant.
 - Captures d'écran, enregistrements d'écran, miniatures, images trop petites et GIF écartés automatiquement (réglable, « Inclure » pour les garder).
-- Les noms de dossiers d'événements (« Vacances Bretagne ») servent de titres de chapitres et de titre du film.
+- Moments et titres de chapitres datés au jour près (« Mardi 21 octobre 2026 », « 21 – 23 octobre 2026 ») ; un titre n'apparaît qu'au changement de jour. Le nom du dossier n'est qu'une indication dans la médiathèque.
 - Doublons stricts ignorés (empreinte SHA-256 du contenu).
 - Quasi-doublons regroupés, réglables : rafales, copies recompressées (dHash + signature 16×16), vidéos Live Photo. La meilleure image du groupe est gardée ; « Garder aussi » réintègre une image.
 - Score de qualité (netteté, exposition, contraste, couleurs) et point d'intérêt pour le cadrage.
 
 **Projets**
-- Enregistrement automatique sur l'appareil (IndexedDB + copie locale des médias, dédupliquée) : on rouvre un projet sans rien réimporter.
+- Enregistrement automatique sur l'appareil, 3 s après la dernière modification (« Enregistré à 14:32 ») ; vignettes stockées une seule fois. Copie de sécurité limitée aux fichiers sans autre accès (≤ 150 Mo), avec barre de progression.
 - Panneau « Projets » : reprendre, renommer, supprimer ; exporter / importer un projet en `.editgo.json` (les médias absents se réassocient en réimportant le dossier).
 
 **Vidéos de caméscope (MTS / M2TS AVCHD, MOD, TOD, AVI, MPG)**
@@ -54,6 +54,7 @@ Version autonome en un seul fichier : **https://engob.github.io/EditGo/editgo-ho
 - Annuler / rétablir, raccourcis (Espace, ← →, Maj+← →, Suppr, Ctrl+Z).
 
 **Export**
+- Vérification préalable : les médias dont le fichier n'est pas accessible sont signalés (avec « Autoriser l'accès aux dossiers »). Aucune image noire : en dernier recours la vignette est utilisée et signalée ; perte du contexte graphique récupérée automatiquement ; mémoire graphique libérée au fil de l'export.
 - Rendu image par image (non temps réel) via WebCodecs : MP4 (H.264, sinon HEVC / VP9 / AV1) ou WebM (VP9 / AV1), son AAC ou Opus.
 - 720p, 1080p, 1440p, 4K ; 24 à 60 i/s ; trois niveaux de qualité ; plusieurs formats en une seule file (paysage, story 9:16, carré, portrait 4:5, scope).
 - Image fixe 4K en PNG. Sur téléphone, « Partager » permet d'enregistrer la vidéo dans Photos.

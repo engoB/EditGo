@@ -30,6 +30,8 @@ export interface MediaItem {
   missing?: boolean;
   /** Toutes les dates trouvées dans le fichier (de la plus fiable à la moins fiable). */
   dates?: { key: string; label: string; t: number; rank: number }[];
+  /** Version de la lecture des dates (relecture automatique quand elle s'améliore). */
+  datesV?: number;
   /** Dossier source dont provient le média. */
   sourceId?: string;
   /** Écarté automatiquement (capture d'écran, miniature…) : raison affichée. */

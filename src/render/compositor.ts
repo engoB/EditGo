@@ -224,6 +224,16 @@ export class Compositor {
     }
   }
 
+  /** Libère les textures qui ne servent plus (export : mémoire graphique maîtrisée). */
+  retainOnly(keys: Set<string>) {
+    for (const [k, v] of this.cache) {
+      if (!keys.has(k)) {
+        this.gl.deleteTexture(v.tex);
+        this.cache.delete(k);
+      }
+    }
+  }
+
   drop(keyPrefix: string) {
     for (const [k, v] of this.cache) {
       if (k.startsWith(keyPrefix)) {

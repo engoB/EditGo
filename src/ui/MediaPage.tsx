@@ -18,6 +18,46 @@ import type { MediaItem, ThemeId } from '../types';
 import { fmtDuration, formatDayShort, formatTime } from '../util';
 
 type Filter = 'all' | 'photo' | 'video' | 'dups' | 'excluded';
+let dupTimer = 0;
+
+type Group = { label: string; note?: string; items: MediaItem[] };
+let groupCache: { items: MediaItem[]; filter: Filter; gap: number; value: ReturnType<typeof computeGroups> } | null = null;
+
+/** Groupes par moment (mis en cache : recalculés seulement si la médiathèque ou le filtre change). */
+function groupMedia(items: MediaItem[], filter: Filter, gap: number) {
+  if (groupCache && groupCache.items === items && groupCache.filter === filter && groupCache.gap === gap) return groupCache.value;
+  const value = computeGroups(items, filter, gap);
+  groupCache = { items, filter, gap, value };
+  return value;
+}
+
+function computeGroups(items: MediaItem[], filter: Filter, gap: number) {
+  const visible = items.filter((m) =>
+    filter === 'all' ? true : filter === 'photo' ? m.kind === 'photo' : filter === 'video' ? m.kind === 'video' : filter === 'dups' ? m.duplicateOf || m.similarTo : m.excluded || m.error,
+  );
+  const chs = chapters(items, gap);
+  const groups: Group[] = chs.map((c) => ({ label: c.label, note: c.event, items: [] }));
+  const other: MediaItem[] = [];
+  // les chapitres sont triés : recherche dichotomique du moment de chaque média
+  for (const m of visible) {
+    let lo = 0,
+      hi = chs.length - 1,
+      best = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (chs[mid].start - 1 <= m.date) {
+        best = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    if (best < 0 && chs.length) best = 0;
+    if (best >= 0 && best + 1 < chs.length && m.date > chs[best].end && chs[best + 1].start - m.date < m.date - chs[best].end) best++;
+    if (best >= 0) groups[best].items.push(m);
+    else other.push(m);
+  }
+  if (other.length) groups.push({ label: 'Autres', items: other });
+  return { visible, chs, groups, flat: groups.flatMap((g) => g.items) };
+}
 
 function useImporters() {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -290,33 +330,7 @@ export function MediaPage() {
   const first = items[0]?.date,
     last = items[items.length - 1]?.date;
 
-  const visible = items.filter((m) =>
-    filter === 'all' ? true : filter === 'photo' ? m.kind === 'photo' : filter === 'video' ? m.kind === 'video' : filter === 'dups' ? m.duplicateOf || m.similarTo : m.excluded || m.error,
-  );
-  // regroupement par chapitre (sur l'ensemble utilisable) puis rattachement des médias écartés
-  const chs = chapters(items, opts.chapterGapHours);
-  const groups: { label: string; items: MediaItem[] }[] = chs.map((c) => ({ label: c.event ? `${c.event} · ${c.label}` : c.label, items: [] }));
-  const other: MediaItem[] = [];
-  for (const m of visible) {
-    const ci = chs.findIndex((c) => m.date >= c.start - 1 && m.date <= c.end + 1);
-    if (ci >= 0) groups[ci].items.push(m);
-    else {
-      // rattache au chapitre le plus proche
-      let best = -1,
-        bd = Infinity;
-      chs.forEach((c, i) => {
-        const d = Math.min(Math.abs(m.date - c.start), Math.abs(m.date - c.end));
-        if (d < bd) {
-          bd = d;
-          best = i;
-        }
-      });
-      if (best >= 0) groups[best].items.push(m);
-      else other.push(m);
-    }
-  }
-  if (other.length) groups.push({ label: 'Autres', items: other });
-  const flat = groups.flatMap((g) => g.items);
+  const { visible, chs, groups, flat } = groupMedia(items, filter, opts.chapterGapHours);
 
   return (
     <div class={'media-page' + (drop.over ? ' drop-over' : '')} {...drop.props}>
@@ -380,7 +394,8 @@ export function MediaPage() {
               format={(v) => (v <= 5 ? 'Stricte' : v <= 10 ? 'Normale' : 'Large')}
               onInput={(v) => {
                 importOpts.value = { ...opts, similarity: v };
-                recomputeDuplicates();
+                clearTimeout(dupTimer);
+                dupTimer = window.setTimeout(recomputeDuplicates, 350);
               }}
             />
           )}
@@ -440,7 +455,9 @@ export function MediaPage() {
               <div class="mgroup">
                 <h3 class="mgroup-title">
                   {g.label}
-                  <small>{g.items.length} médias</small>
+                  <small>
+                    {g.items.length} médias{g.note ? ` · ${g.note}` : ''}
+                  </small>
                 </h3>
                 <div class="tiles">
                   {g.items.map((m) => (

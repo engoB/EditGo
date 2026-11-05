@@ -3141,3 +3141,43 @@ input[type='number'] {
   border: 1px solid var(--line2);
   background: var(--panel2);
 }
+
+.alert-warn {
+  border-color: rgba(255, 122, 89, 0.45);
+  background: rgba(255, 122, 89, 0.08);
+}
+.alert-warn b {
+  color: var(--text);
+}
+
+.save-txt {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+.save-txt small {
+  font-size: 10.5px;
+  color: var(--muted);
+  display: grid;
+  gap: 2px;
+}
+.save-bar {
+  display: block;
+  width: 120px;
+  height: 3px;
+  background: #2a2a33;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.save-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+
+/* rendu différé des groupes hors écran (grandes médiathèques) */
+.mgroup {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 600px;
+}

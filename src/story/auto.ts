@@ -2,7 +2,7 @@
 // plans, rythme (calé sur le tempo de la musique), transitions et titres.
 import type { Clip, MediaItem, MotionId, Project, TransitionId } from '../types';
 import { ASPECTS, THEMES } from '../presets';
-import { autoTitle, formatDay, formatMonth, hashStr, rng, uid } from '../util';
+import { autoTitle, formatDay, formatDayShort, hashStr, rng, uid } from '../util';
 import { eventFromPath } from '../media/dates';
 
 export interface Chapter {
@@ -38,8 +38,8 @@ export function chapters(items: MediaItem[], gapHours: number): Chapter[] {
     cur.push(m);
   }
   flush();
-  const spanDays = out.length ? (out[out.length - 1].end - out[0].start) / 86_400_000 : 0;
-  for (const c of out) c.label = spanDays > 120 ? formatMonth(c.start) : formatDay(c.start);
+  // libellé précis au jour près (période si le moment s'étale sur plusieurs jours)
+  for (const c of out) c.label = dayRange(c.start, c.end);
   // nom d'événement issu des dossiers
   for (const c of out) {
     const count = new Map<string, number>();
@@ -54,11 +54,24 @@ export function chapters(items: MediaItem[], gapHours: number): Chapter[] {
   const count = new Map<string, number>();
   for (const c of out) count.set(c.label, (count.get(c.label) ?? 0) + 1);
   for (const c of out) {
-    if ((count.get(c.label) ?? 0) < 2 || spanDays > 120) continue;
+    if ((count.get(c.label) ?? 0) < 2) continue;
     const h = new Date(c.start).getHours();
     c.label += h < 5 ? ' · la nuit' : h < 12 ? ' · le matin' : h < 18 ? ' · l’après-midi' : ' · le soir';
   }
   return out;
+}
+
+const sameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString();
+
+/** « Mardi 21 octobre 2026 », ou « 21 – 23 octobre 2026 » / « 28 sept. – 2 oct. 2026 » sur plusieurs jours. */
+export function dayRange(start: number, end: number): string {
+  if (sameDay(start, end)) return formatDay(start);
+  const a = new Date(start),
+    b = new Date(end);
+  if (a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth())
+    return `${a.getDate()} – ${b.getDate()} ${new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' }).format(b)}`;
+  const short = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' });
+  return a.getFullYear() === b.getFullYear() ? `${short.format(a)} – ${short.format(b)} ${b.getFullYear()}` : `${formatDayShort(start)} – ${formatDayShort(end)}`;
 }
 
 export function newClip(partial: Partial<Clip>): Clip {
@@ -121,10 +134,7 @@ export function buildStory(items: MediaItem[], project: Project, gapHours: numbe
     });
   }
 
-  const events = new Map<string, number>();
-  for (const c of chs) if (c.event) events.set(c.event, (events.get(c.event) ?? 0) + c.items.length);
-  const mainEvent = [...events.entries()].sort((a, b) => b[1] - a[1])[0];
-  const title = project.title || (mainEvent && mainEvent[1] >= all.length * 0.6 ? mainEvent[0] : autoTitle(all[0].date, all[all.length - 1].date).title);
+  const title = project.title || autoTitle(all[0].date, all[all.length - 1].date).title;
   const subtitle = project.subtitle || autoTitle(all[0].date, all[all.length - 1].date).subtitle;
   const clips: Clip[] = [];
   const rand = rng(hashStr(all.map((m) => m.id).join('|')));
@@ -188,9 +198,10 @@ export function buildStory(items: MediaItem[], project: Project, gapHours: numbe
           extra: unit.length > 1 ? unit.slice(1).map((x) => x.id) : undefined,
           chapter: ci,
           volume: m.hasAudio ? 0.7 : 0,
+          // titre de chapitre : la date, uniquement quand le jour change
           title:
-            firstOfChapter && chs.length > 1
-              ? { text: c.event ?? c.label, sub: c.event ? c.label : '', style: theme.chapterTitle, position: 'lower' }
+            firstOfChapter && chs.length > 1 && (ci === 0 || !sameDay(chs[ci - 1].end, c.start))
+              ? { text: dayRange(c.start, c.end), sub: '', style: theme.chapterTitle, position: 'lower' }
               : null,
         }),
       );
