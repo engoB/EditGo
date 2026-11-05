@@ -6,6 +6,8 @@ import {
   musicBusy,
   musicBuffer,
   beginGesture,
+  timelineView,
+  page,
   playhead,
   playing,
   project,
@@ -16,6 +18,7 @@ import {
   removeClip,
   toast,
 } from '../state/store';
+import { sortClipsByDate } from '../state/actions';
 import { applyTheme, moveClipTo, nudgeClip, placeClipByDate, prepareMusic, rebuildStory, retimeFilm, setMediaDate, setMusicFile } from '../state/actions';
 import { retimeRange } from '../story/retime';
 import { layoutsFor, bestCollage, type Rect } from '../story/collage';
@@ -730,6 +733,60 @@ function MusicInspector() {
   );
 }
 
+function QuickActions({ onStyle, onMusic }: { onStyle: () => void; onMusic: () => void }) {
+  const clips = project.value.clips;
+  return (
+    <div class="quick">
+      <p class="quick-hint">
+        <Icon name="info" size={15} /> Cliquez un plan dans la timeline (ou le storyboard) pour régler sa durée, sa transition, son titre, ou découper une vidéo.
+      </p>
+      <h4 class="side-title">Actions rapides</h4>
+      <button class="quick-row" onClick={onStyle}>
+        <Icon name="clock" size={17} />
+        <span>
+          <b>Durée du film</b>
+          <small>Allonger ou raccourcir le film entier</small>
+        </span>
+      </button>
+      <button class="quick-row" disabled={clips.length < 2} onClick={sortClipsByDate}>
+        <Icon name="calendar" size={17} />
+        <span>
+          <b>Remettre dans l’ordre des dates</b>
+          <small>Après avoir corrigé des dates</small>
+        </span>
+      </button>
+      <button class="quick-row" onClick={() => (timelineView.value = 'storyboard')}>
+        <Icon name="grid" size={17} />
+        <span>
+          <b>Réorganiser les plans</b>
+          <small>Vue Storyboard : glisser-déposer, réunir des photos</small>
+        </span>
+      </button>
+      <button class="quick-row" onClick={onStyle}>
+        <Icon name="palette" size={17} />
+        <span>
+          <b>Ambiance, couleurs, format</b>
+          <small>Cinéma, Douceur, Énergie… · 16:9, 9:16…</small>
+        </span>
+      </button>
+      <button class="quick-row" onClick={onMusic}>
+        <Icon name="music" size={17} />
+        <span>
+          <b>Musique</b>
+          <small>Composée sur l’appareil ou votre morceau</small>
+        </span>
+      </button>
+      <button class="quick-row" disabled={!clips.length} onClick={() => (page.value = 'export')}>
+        <Icon name="download" size={17} />
+        <span>
+          <b>Exporter le film</b>
+          <small>MP4 / WebM, jusqu’en 4K</small>
+        </span>
+      </button>
+    </div>
+  );
+}
+
 function Inspector() {
   const [tab, setTab] = useState<'clip' | 'style' | 'music'>('style');
   const sel = selectedClip.value;
@@ -755,10 +812,7 @@ function Inspector() {
           (clip ? (
             <ClipInspector key={clip.id} c={clip} />
           ) : (
-            <div class="empty-note">
-              <Icon name="info" />
-              Sélectionnez un plan dans la timeline pour régler sa durée, sa transition, son cadrage, son titre ou découper une vidéo.
-            </div>
+            <QuickActions onStyle={() => setTab('style')} onMusic={() => setTab('music')} />
           ))}
         {tab === 'style' && <StyleInspector />}
         {tab === 'music' && <MusicInspector />}

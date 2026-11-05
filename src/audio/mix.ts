@@ -99,3 +99,62 @@ export async function mixAudio(opts: {
   }
   return ctx.startRendering();
 }
+
+/**
+ * Mixage d'une tranche [s0, s0 + n/sr) du film (export long : mémoire constante).
+ * Les tranches successives s'enchaînent à l'échantillon près.
+ */
+export async function mixAudioChunk(opts: {
+  project: Project;
+  media: Map<string, MediaItem>;
+  placed: Placed[];
+  total: number;
+  music: AudioBuffer | null;
+  s0: number;
+  n: number;
+  sampleRate: number;
+}): Promise<AudioBuffer> {
+  const { project, media, placed, total, music, s0, n, sampleRate: sr } = opts;
+  const s1 = s0 + n / sr;
+  const ctx = new OfflineAudioContext(2, n, sr);
+  const segs = duckingSegments(placed, media);
+  if (music && project.music.kind !== 'none') {
+    const loop = music.duration < total + project.music.offset;
+    const off = project.music.offset + s0;
+    if (loop || off < music.duration) {
+      const src = ctx.createBufferSource();
+      src.buffer = music;
+      src.loop = loop;
+      const g = ctx.createGain();
+      applyMusicEnvelope(g.gain, project, total, segs, s0);
+      src.connect(g).connect(ctx.destination);
+      src.start(0, loop ? off % music.duration : off);
+    }
+  }
+  for (const p of placed) {
+    if (p.end <= s0 || p.start >= s1) continue;
+    const m = p.clip.mediaId ? media.get(p.clip.mediaId) : undefined;
+    const c = p.clip;
+    if (c.type !== 'media' || m?.kind !== 'video' || !m.file || !m.hasAudio || c.volume <= 0.01) continue;
+    const a = Math.max(s0, p.start),
+      b = Math.min(s1, p.end);
+    const buf = await extractAudio(m.file, c.trimIn + (a - p.start) * c.speed, Math.min(m.duration, c.trimIn + (b - p.start) * c.speed + 0.05));
+    if (!buf) continue;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = c.speed;
+    const g = ctx.createGain();
+    const next = placed[p.index + 1];
+    const fi = Math.max(0.12, p.tIn),
+      fo = Math.max(0.15, next ? next.tIn : 0.3);
+    // enveloppe (temps absolus) ramenée à la tranche
+    const env = (t: number) => c.volume * Math.max(0, Math.min(1, (t - p.start) / fi, (p.end - t) / fo));
+    const pts = [a, p.start + fi, p.end - fo, b].filter((t) => t >= a && t <= b).sort((x, y) => x - y);
+    g.gain.setValueAtTime(env(a), a - s0);
+    for (const t of pts.slice(1)) g.gain.linearRampToValueAtTime(env(t), t - s0);
+    src.connect(g).connect(ctx.destination);
+    src.start(a - s0);
+    src.stop(b - s0 + 0.01);
+  }
+  return ctx.startRendering();
+}

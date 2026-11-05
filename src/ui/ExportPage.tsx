@@ -3,13 +3,14 @@ import { mediaMap, musicBuffer, playhead, project, timeline, toast, musicBusy } 
 import { prepareMusic } from '../state/actions';
 import { grantPendingAccess, pendingAccess } from '../state/persist';
 import { EXPORT_PRESETS, dimsFor, ASPECTS } from '../presets';
-import type { Container, ExportJob, QualityLevel } from '../export/exporter';
+import type { Container, ExportDest, ExportJob, QualityLevel } from '../export/exporter';
 const loadExporter = () => import('../export/exporter');
 import { Icon } from './icons';
 import { Segmented, Toggle } from './controls';
 import { downloadBlob, saveFile, fmtBytes, fmtDuration } from '../util';
 
 interface Done {
+  savedTo?: string;
   name: string;
   blob: Blob;
   url: string;
@@ -28,6 +29,8 @@ export function ExportPage() {
   const [fps, setFps] = useState(30);
   const [quality, setQuality] = useState<QualityLevel>('high');
   const [audio, setAudio] = useState(true);
+  const canPickDir = typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function';
+  const [toFolder, setToFolder] = useState(true);
   const [codecs, setCodecs] = useState<{ mp4: string | null; webm: string | null } | null>(null);
   const [run, setRun] = useState<{ job: number; jobs: number; label: string; frac: number; stage: string; eta: string } | null>(null);
   const [done, setDone] = useState<Done[]>([]);
@@ -53,6 +56,20 @@ export function ExportPage() {
 
   const start = async () => {
     if (!placed.length) return toast('Le montage est vide.', 'warn');
+    // 1. destination, avant toute autre attente (le navigateur l'exige juste après le clic)
+    let dir: FileSystemDirectoryHandle | null = null;
+    if (toFolder && canPickDir) {
+      try {
+        dir = await (window as unknown as { showDirectoryPicker: (o: object) => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker({
+          mode: 'readwrite',
+          id: 'editgo-export',
+          startIn: 'videos',
+        });
+      } catch (e) {
+        if ((e as DOMException).name === 'AbortError') return;
+        dir = null;
+      }
+    }
     if (audio && p.music.kind !== 'none' && !musicBuffer.value) await prepareMusic();
     const ac = new AbortController();
     abort.current = ac;
@@ -61,8 +78,32 @@ export function ExportPage() {
       const t0 = performance.now();
       setRun({ job: i + 1, jobs: jobs.length, label: job.label, frac: 0, stage: 'Préparation', eta: '' });
       try {
-        const { runExport } = await loadExporter();
+        const { runExport, fileNameFor } = await loadExporter();
+        const name = fileNameFor(p, job);
+        // 2. le fichier est écrit sur le disque au fil de l'eau (aucune limite de mémoire vive)
+        let dest: ExportDest = { kind: 'buffer' };
+        try {
+          if (dir) {
+            const fh = await dir.getFileHandle(name, { create: true });
+            dest = { kind: 'stream', writable: await fh.createWritable(), getFile: () => fh.getFile(), where: `${dir.name}/${name}` };
+          } else {
+            // espace disque du navigateur, puis téléchargement du fichier (lu depuis le disque)
+            const root = await navigator.storage.getDirectory();
+            const ex = await root.getDirectoryHandle('exports', { create: true });
+            if (i === 0) {
+              const old: string[] = [];
+              // @ts-expect-error itération asynchrone des entrées
+              for await (const [n] of ex.entries()) old.push(n);
+              for (const n of old) await ex.removeEntry(n).catch(() => null);
+            }
+            const fh = await ex.getFileHandle(name, { create: true });
+            if ('createWritable' in fh) dest = { kind: 'stream', writable: await fh.createWritable(), getFile: () => fh.getFile(), where: '' };
+          }
+        } catch {
+          dest = { kind: 'buffer' };
+        }
         const res = await runExport({
+          dest,
           project: p,
           media: mediaMap.value,
           job,
@@ -82,9 +123,13 @@ export function ExportPage() {
           },
         });
         const url = URL.createObjectURL(res.blob);
-        setDone((d) => [{ name: res.fileName, blob: res.blob, url, codec: res.codec, seconds: res.seconds, label: job.label }, ...d]);
-        saveFile(res.blob, res.fileName);
-        toast(`Export terminé : ${res.fileName}`, 'ok', 5000);
+        const savedTo = res.savedTo || undefined;
+        setDone((d) => [{ name: res.fileName, blob: res.blob, url, codec: res.codec, seconds: res.seconds, label: job.label, savedTo }, ...d]);
+        if (savedTo) toast(`Film enregistré : ${savedTo}`, 'ok', 9000);
+        else {
+          saveFile(res.blob, res.fileName);
+          toast(`Export terminé : ${res.fileName}`, 'ok', 5000);
+        }
         for (const w of res.warnings) toast(w, 'warn', 9000);
       } catch (e) {
         if ((e as DOMException).name === 'AbortError') toast('Export annulé', 'warn');
@@ -203,6 +248,16 @@ export function ExportPage() {
           <div>
             <Toggle label="Inclure le son" hint="Musique + son des vidéos" checked={audio} onChange={setAudio} />
           </div>
+          {canPickDir && (
+            <div>
+              <Toggle
+                label="Enregistrer directement dans un dossier"
+                hint="Recommandé, indispensable pour les films longs : le fichier est écrit au fur et à mesure"
+                checked={toFolder}
+                onChange={setToFolder}
+              />
+            </div>
+          )}
         </div>
       </section>
 
@@ -256,6 +311,7 @@ export function ExportPage() {
         )}
         <p class="side-note">
           Le rendu est calculé image par image sur votre appareil (aucun envoi en ligne). Gardez cet onglet ouvert pendant l’export.
+          {canPickDir && toFolder ? ' Au lancement, choisissez le dossier où écrire le film.' : ' Le fichier sera proposé au téléchargement à la fin.'}
         </p>
         {done.length > 0 && (
           <div class="done-list">
@@ -265,6 +321,7 @@ export function ExportPage() {
                 <video src={d.url} muted playsInline preload="metadata" />
                 <div class="done-txt">
                   <b>{d.name}</b>
+                  {d.savedTo && <small class="done-where">Enregistré dans {d.savedTo}</small>}
                   <small>
                     {fmtBytes(d.blob.size)} · {d.codec} · rendu en {fmtDuration(d.seconds)}
                   </small>

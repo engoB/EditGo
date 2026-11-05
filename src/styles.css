@@ -3374,3 +3374,293 @@ input[type='number'] {
   overflow: hidden;
   border-radius: 0 0 var(--r) var(--r);
 }
+
+.done-where {
+  display: block;
+  color: var(--green) !important;
+}
+
+/* ---------- Étapes (barre du haut) ---------- */
+.pages.steps button {
+  gap: 9px;
+  padding: 5px 14px 5px 8px;
+  text-align: left;
+}
+.step-n {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 700;
+  background: var(--panel3);
+  color: var(--text2);
+  flex: none;
+}
+.pages.steps button.on .step-n {
+  background: var(--grad);
+  color: #1c1208;
+}
+.pages.steps button.done:not(.on) .step-n {
+  background: rgba(79, 209, 161, 0.18);
+  color: var(--green);
+}
+.step-txt {
+  display: grid;
+  line-height: 1.15;
+}
+.step-txt b {
+  font-size: 13px;
+}
+.step-txt small {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.help-btn b {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+}
+@media (max-width: 1200px) {
+  .step-txt small {
+    display: none;
+  }
+}
+@media (max-width: 640px) {
+  .pages.steps button {
+    padding: 5px 7px;
+  }
+  .step-txt {
+    display: none;
+  }
+}
+
+/* ---------- Guide ---------- */
+.guide {
+  width: min(680px, 100%);
+}
+.guide-body {
+  padding: 14px 16px 20px;
+  gap: 10px;
+}
+.guide-steps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.guide-step {
+  display: flex;
+  gap: 10px;
+  text-align: left;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line2);
+  background: var(--bg2);
+}
+.guide-step:hover {
+  border-color: var(--accent);
+}
+.guide-step i {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--grad);
+  color: #1c1208;
+  font-style: normal;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.guide-step b {
+  display: block;
+  font-size: 13.5px;
+}
+.guide-step small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.guide-where,
+.guide-keys {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.guide-where dt,
+.guide-where dd,
+.guide-keys dt,
+.guide-keys dd {
+  margin: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.guide-where dt,
+.guide-keys dt {
+  font-weight: 600;
+  background: var(--panel2);
+}
+.guide-where dd,
+.guide-keys dd {
+  color: var(--text2);
+}
+kbd {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--line2);
+  background: var(--bg2);
+}
+@media (max-width: 640px) {
+  .guide-steps,
+  .guide-where,
+  .guide-keys {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Sections repliables ---------- */
+.isec-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.isec-toggle:hover h4 {
+  color: var(--text);
+}
+.chev {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(45deg);
+  margin: -3px 2px 0;
+  transition: transform 0.15s;
+}
+.isec.closed .chev {
+  transform: rotate(-45deg);
+  margin-top: 0;
+}
+.isec.closed {
+  gap: 0;
+}
+
+/* ---------- Options avancées ---------- */
+.adv {
+  display: grid;
+  gap: 12px;
+}
+.adv summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.adv summary::-webkit-details-marker {
+  display: none;
+}
+.adv summary::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg);
+}
+.adv[open] summary::before {
+  transform: rotate(45deg);
+  margin-top: -3px;
+}
+.adv[open] > *:not(summary) {
+  margin-top: 4px;
+}
+
+/* ---------- Actions rapides ---------- */
+.quick {
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+}
+.quick-hint {
+  margin: 0 0 6px;
+  display: flex;
+  gap: 8px;
+  color: var(--text2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  background: rgba(90, 168, 255, 0.07);
+  border: 1px solid rgba(90, 168, 255, 0.25);
+  border-radius: 10px;
+  padding: 10px;
+}
+.quick-hint .ico {
+  color: var(--blue);
+  margin-top: 2px;
+}
+.quick-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg2);
+}
+.quick-row:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.quick-row .ico {
+  color: var(--accent);
+}
+.quick-row b {
+  display: block;
+  font-size: 13px;
+}
+.quick-row small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+/* bouton principal toujours visible en bas de la colonne « Créer le film » */
+.create-side > .btn-primary.btn-block {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  flex: none;
+  box-shadow: 0 -14px 18px 4px var(--panel), 0 6px 22px rgba(255, 140, 80, 0.25);
+}
+/* étapes dans le flux de la barre (plus de chevauchement) */
+.pages.steps {
+  position: static;
+  transform: none;
+  margin: 0 auto;
+  flex: none;
+}
+.topbar .project-title {
+  flex: 1 1 120px;
+  max-width: 240px;
+}
+.guide-body {
+  display: flex;
+  flex-direction: column;
+}
+.guide-body > * {
+  flex: none;
+}

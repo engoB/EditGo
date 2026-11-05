@@ -483,8 +483,8 @@ export async function prepareMusic(force = false) {
   try {
     if (p.music.kind === 'generated') {
       const cur = musicBuffer.value;
-      if (!force && cur && cur.duration >= total + 1 && (cur as AudioBuffer & { mood?: string }).mood === p.music.mood) return;
-      const { buffer, bpm } = await generateMusic(p.music.mood, Math.max(30, total + 8));
+      if (!force && cur && (cur as AudioBuffer & { mood?: string }).mood === p.music.mood) return;
+      const { buffer, bpm } = await generateMusic(p.music.mood, total);
       if (job !== musicJob) return;
       (buffer as AudioBuffer & { mood?: string }).mood = p.music.mood;
       musicBuffer.value = buffer;

@@ -4,6 +4,8 @@ import {
   AudioBufferSource,
   BlobSource,
   BufferTarget,
+  StreamTarget,
+  type StreamTargetChunk,
   CanvasSink,
   CanvasSource,
   Input,
@@ -25,11 +27,21 @@ import { Compositor, type SourceFrame } from '../render/compositor';
 import { buildFrame, type SourceProvider } from '../render/frame';
 import { ImageCache } from '../render/images';
 import { layout, stateAt, type Placed } from '../story/timeline';
-import { mixAudio } from '../audio/mix';
+import { mixAudioChunk } from '../audio/mix';
 import { FrameReader } from '../media/framereader';
 
 export type Container = 'mp4' | 'webm';
 export type QualityLevel = 'standard' | 'high' | 'max';
+
+/** Destination de l'export : fichier sur disque (flux) ou mémoire (courts exports). */
+export type ExportDest =
+  | { kind: 'buffer' }
+  | { kind: 'stream'; writable: FileSystemWritableFileStream; getFile: () => Promise<File>; where: string };
+
+export function fileNameFor(project: Project, job: ExportJob): string {
+  const safe = (project.title || 'souvenir').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w-]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
+  return `${safe || 'souvenir'}-${job.width}x${job.height}-${job.fps}fps.${job.container}`;
+}
 
 export interface ExportJob {
   label: string;
@@ -43,6 +55,8 @@ export interface ExportJob {
 
 export interface ExportResult {
   warnings: string[];
+  /** Emplacement du fichier quand il est écrit directement sur le disque. */
+  savedTo?: string;
   blob: Blob;
   fileName: string;
   codec: string;
@@ -246,6 +260,7 @@ export async function runExport(opts: {
   music: AudioBuffer | null;
   onProgress: (fraction: number, stage: string, preview?: HTMLCanvasElement) => void;
   signal: AbortSignal;
+  dest?: ExportDest;
 }): Promise<ExportResult> {
   const { project, media, job, signal } = opts;
   const t0 = performance.now();
@@ -293,9 +308,14 @@ export async function runExport(opts: {
   const maxSide = Math.min(4096, Math.round(Math.max(W, H) * 1.2));
   const sources = new ExportSources(media, placed, job.fps, frames, maxSide);
 
+  // destination : fichier sur disque écrit au fil de l'eau (exports longs), sinon mémoire
+  const dest = opts.dest ?? { kind: 'buffer' as const };
   const output = new Output({
-    format: job.container === 'mp4' ? new Mp4OutputFormat({ fastStart: 'in-memory' }) : new WebMOutputFormat(),
-    target: new BufferTarget(),
+    format: job.container === 'mp4' ? new Mp4OutputFormat({ fastStart: dest.kind === 'stream' ? false : 'in-memory' }) : new WebMOutputFormat(),
+    target:
+      dest.kind === 'stream'
+        ? new StreamTarget(dest.writable as unknown as WritableStream<StreamTargetChunk>, { chunked: true, chunkSize: 16 * 1024 * 1024 })
+        : new BufferTarget(),
   });
   const videoSource = new CanvasSource(canvas, { codec: vcodec, bitrate: quality, keyFrameInterval: 2, latencyMode: 'quality' } as ConstructorParameters<typeof CanvasSource>[1]);
   output.addVideoTrack(videoSource, { frameRate: job.fps });
@@ -308,19 +328,31 @@ export async function runExport(opts: {
 
   try {
     await output.start();
-    if (audioSource) {
-      opts.onProgress(0, 'Mixage audio');
-      const mixed = await mixAudio({ project, media, placed, total, music: opts.music, onProgress: (f) => opts.onProgress(f * 0.04, 'Mixage audio') });
-      if (signal.aborted) throw new DOMException('Annulé', 'AbortError');
-      await audioSource.add(mixed);
-      audioSource.close();
-    }
+    // son mixé par tranches de 30 s, au fil du rendu des images (mémoire constante)
+    const SR = 48000,
+      CHUNK = 30 * SR,
+      totalSamples = Math.ceil(total * SR);
+    let audioDone = 0;
+    const feedAudio = async (until: number) => {
+      if (!audioSource) return;
+      while (audioDone < totalSamples && audioDone / SR < until) {
+        const n = Math.min(CHUNK, totalSamples - audioDone);
+        const buf = await mixAudioChunk({ project, media, placed, total, music: opts.music, s0: audioDone / SR, n, sampleRate: SR });
+        await audioSource.add(buf);
+        audioDone += n;
+      }
+      if (audioDone >= totalSamples) {
+        audioSource.close();
+        audioSource = null;
+      }
+    };
     const dt = 1 / job.fps;
     let lastUi = 0;
     let lost = 0;
     for (let i = 0; i < frames; i++) {
       if (signal.aborted) throw new DOMException('Annulé', 'AbortError');
       const t = i * dt;
+      if (audioSource && audioDone / SR < t + 1) await feedAudio(t + 30);
       await sources.prepare(t, maxSide);
       const fd = buildFrame({ project, media, placed, total, t, W, H, provider: sources, overlay });
       for (let attempt = 0; attempt < 3; attempt++) {
@@ -343,22 +375,25 @@ export async function runExport(opts: {
         await new Promise((r) => setTimeout(r, 0));
       }
     }
+    await feedAudio(Infinity);
     videoSource.close();
     opts.onProgress(0.99, 'Finalisation');
     await output.finalize();
+    if (dest.kind === 'stream') await dest.writable.close().catch(() => null);
   } catch (e) {
     if (output.state !== 'finalized' && output.state !== 'canceled') await output.cancel().catch(() => null);
+    if (dest.kind === 'stream') await dest.writable.abort().catch(() => null);
     throw e;
   } finally {
     sources.dispose();
     comp.dispose();
   }
-  const buf = (output.target as BufferTarget).buffer!;
   const mime = job.container === 'mp4' ? 'video/mp4' : 'video/webm';
-  const safe = (project.title || 'souvenir').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w-]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
+  const blob: Blob = dest.kind === 'stream' ? await dest.getFile() : new Blob([(output.target as BufferTarget).buffer!], { type: mime });
   return {
-    blob: new Blob([buf], { type: mime }),
-    fileName: `${safe || 'souvenir'}-${W}x${H}-${job.fps}fps.${job.container}`,
+    blob,
+    savedTo: dest.kind === 'stream' ? dest.where : undefined,
+    fileName: fileNameFor(project, job),
     warnings: [
       ...(sources.fallbacks.size ? [`${sources.fallbacks.size} média(s) introuvable(s) ou illisible(s) rendu(s) avec leur vignette`] : []),
     ],

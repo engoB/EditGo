@@ -47,8 +47,12 @@ Version autonome en un seul fichier : **https://engob.github.io/EditGo/editgo-ho
 - Après toute correction de date, le média est replacé dans l'ordre chronologique et mis en évidence ; si un montage existe, « Dates modifiées : remettre dans l'ordre » le réordonne.
 - Sur la page Médias, clic sur l'heure d'une vignette pour corriger sa date ; « Trier par date » remet tout le montage dans l'ordre chronologique. Raccourci : Alt + ← / →.
 
+**Interface**
+- Étapes numérotées dans la barre du haut (1 Médias · 2 Montage · 3 Export) avec leur état ; bouton « Guide » : étapes, où trouver chaque fonction, raccourcis.
+- Sections de réglages repliables, options de tri avancées repliées, actions rapides dans le montage.
+
 **Édition**
-- Timeline : réordonner par glisser, rogner la durée ou le point d'entrée d'une vidéo depuis les bords, couper à la tête de lecture, cartons-titres.
+- Timeline : « Tout voir » (touche Z) et zoom progressif jusqu'au détail ; règle graduée adaptée au zoom (secondes → heures) ; réordonner par glisser, rogner la durée ou le point d'entrée d'une vidéo depuis les bords, couper à la tête de lecture, cartons-titres.
 - Vidéos : barre de découpe avec images-repères, poignées d'entrée et de sortie (et glissement de l'extrait entier), saisie au dixième de seconde, « Entrée ici / Sortie ici » à la tête de lecture (touches I et O).
 - « Réinitialiser » : recréer automatiquement le montage ou le vider (annulable).
 - Par plan : durée, 12 transitions, mouvement Ken Burns, cadrage (remplir / fond flou / entier), titre (6 styles animés), vitesse et volume des vidéos.
@@ -57,6 +61,7 @@ Version autonome en un seul fichier : **https://engob.github.io/EditGo/editgo-ho
 - Annuler / rétablir, raccourcis (Espace, ← →, Maj+← →, Suppr, Ctrl+Z).
 
 **Export**
+- Écriture directe sur le disque, au fil de l'eau : le film est enregistré dans le dossier choisi (Chrome, Edge) ou dans l'espace disque du navigateur puis téléchargé ; aucune limite de mémoire vive, même pour un film d'une heure. Son mixé par tranches de 30 s, musique générée en boucle sans couture.
 - Vérification préalable : les médias dont le fichier n'est pas accessible sont signalés (avec « Autoriser l'accès aux dossiers »). Aucune image noire : en dernier recours la vignette est utilisée et signalée ; perte du contexte graphique récupérée automatiquement ; mémoire graphique libérée au fil de l'export.
 - Rendu image par image (non temps réel) via WebCodecs : MP4 (H.264, sinon HEVC / VP9 / AV1) ou WebM (VP9 / AV1), son AAC ou Opus.
 - 720p, 1080p, 1440p, 4K ; 24 à 60 i/s ; trois niveaux de qualité ; plusieurs formats en une seule file (paysage, story 9:16, carré, portrait 4:5, scope).

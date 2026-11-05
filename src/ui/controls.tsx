@@ -1,4 +1,5 @@
 import type { ComponentChildren } from 'preact';
+import { useState } from 'preact/hooks';
 import { toasts, beginGesture } from '../state/store';
 import { Icon } from './icons';
 
@@ -86,14 +87,37 @@ export function Toggle(props: { label: string; checked: boolean; onChange: (v: b
   );
 }
 
-export function Section(props: { title: string; children: ComponentChildren; right?: ComponentChildren }) {
+const sectionState = new Map<string, boolean>();
+try {
+  for (const [k, v] of Object.entries(JSON.parse(localStorage.getItem('editgo-sections') || '{}'))) sectionState.set(k, !!v);
+} catch {
+  /* préférences indisponibles */
+}
+
+/** Section repliable (état mémorisé par titre). */
+export function Section(props: { title: string; children: ComponentChildren; right?: ComponentChildren; closed?: boolean }) {
+  const key = props.title.replace(/\s*·.*$/, '');
+  const [open, setOpen] = useState(sectionState.get(key) ?? !props.closed);
+  const toggle = () => {
+    const v = !open;
+    setOpen(v);
+    sectionState.set(key, v);
+    try {
+      localStorage.setItem('editgo-sections', JSON.stringify(Object.fromEntries(sectionState)));
+    } catch {
+      /* rien */
+    }
+  };
   return (
-    <section class="isec">
+    <section class={'isec' + (open ? '' : ' closed')}>
       <header>
-        <h4>{props.title}</h4>
-        {props.right}
+        <button class="isec-toggle" onClick={toggle} aria-expanded={open}>
+          <i class="chev" />
+          <h4>{props.title}</h4>
+        </button>
+        {open && props.right}
       </header>
-      {props.children}
+      {open && props.children}
     </section>
   );
 }

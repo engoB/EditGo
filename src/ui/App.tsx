@@ -3,11 +3,17 @@ import { canRedo, canUndo, historyRev, media, page, playhead, playing, project, 
 import { autoCreate, nudgeClip, setVideoBounds } from '../state/actions';
 import { ProjectsPanel, SaveIndicator, projectsOpen } from './Projects';
 import { AccessBanner } from './Sources';
+import { Guide, guideOpen } from './Guide';
 import { MediaPage } from './MediaPage';
 import { EditPage } from './EditPage';
 import { ExportPage } from './ExportPage';
 import { Icon } from './icons';
 import { Toasts } from './controls';
+
+const fmtShort = (s: number) => {
+  const r = Math.round(s);
+  return r >= 3600 ? `${Math.floor(r / 3600)} h ${String(Math.floor((r % 3600) / 60)).padStart(2, '0')}` : `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`;
+};
 
 const PAGES: { id: Page; label: string; icon: string }[] = [
   { id: 'media', label: 'Médias', icon: 'image' },
@@ -103,23 +109,43 @@ export function App() {
             aria-label="Titre du projet"
           />
         )}
-        <nav class="pages">
-          {PAGES.map((p) => (
-            <button
-              class={page.value === p.id ? 'on' : ''}
-              disabled={p.id !== 'media' && !hasClips && !hasMedia}
-              onClick={() => {
-                playing.value = false;
-                page.value = p.id;
-              }}
-            >
-              <Icon name={p.icon} size={16} />
-              <span>{p.label}</span>
-            </button>
-          ))}
+        <nav class="pages steps" aria-label="Étapes">
+          {PAGES.map((p, i) => {
+            const done = p.id === 'media' ? hasMedia : p.id === 'edit' ? hasClips : false;
+            const sub =
+              p.id === 'media'
+                ? hasMedia
+                  ? `${media.value.length} fichiers`
+                  : 'importer'
+                : p.id === 'edit'
+                  ? hasClips
+                    ? `${project.value.clips.length} plans · ${fmtShort(timeline.value.total)}`
+                    : 'créer le film'
+                  : 'fichier vidéo';
+            return (
+              <button
+                class={(page.value === p.id ? 'on' : '') + (done ? ' done' : '')}
+                disabled={p.id !== 'media' && !hasClips && !hasMedia}
+                onClick={() => {
+                  playing.value = false;
+                  page.value = p.id;
+                }}
+              >
+                <i class="step-n">{done && page.value !== p.id ? <Icon name="check" size={11} /> : i + 1}</i>
+                <span class="step-txt">
+                  <b>{p.label}</b>
+                  <small>{sub}</small>
+                </span>
+              </button>
+            );
+          })}
         </nav>
         <div class="top-actions">
           <SaveIndicator />
+          <button class="ibtn help-btn" title="Guide : où trouver chaque fonction" onClick={() => (guideOpen.value = true)}>
+            <b>?</b>
+            <span class="hide-sm">Guide</span>
+          </button>
           <button class="ibtn" title="Projets enregistrés" onClick={() => (projectsOpen.value = true)}>
             <Icon name="folder" size={16} />
             <span class="hide-sm">Projets</span>
@@ -149,6 +175,7 @@ export function App() {
         {page.value === 'export' && <ExportPage />}
       </main>
       <ProjectsPanel />
+      <Guide />
       <Toasts />
     </div>
   );

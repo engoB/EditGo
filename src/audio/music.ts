@@ -199,12 +199,15 @@ function freeverb(input: Float32Array, sr: number, room: number, damp: number, s
 export async function generateMusic(mood: MusicMood, duration: number, sampleRate = 44100): Promise<{ buffer: AudioBuffer; bpm: number }> {
   const { bpm } = MOODS[mood];
   const beat = 60 / bpm;
-  const total = Math.max(4, duration + 1);
-  const r = rng(mood.length * 1337 + Math.round(duration));
   const prog = PROGS[mood];
   const barBeats = 4;
   const chordBars = mood === 'upbeat' ? 1 : 2;
   const chordLen = barBeats * chordBars * beat;
+  // boucle d'environ 3 min au plus (nombre entier de grilles d'accords), répétée sans couture :
+  // la mémoire reste faible même pour un film d'une heure
+  const progDur = prog.length * chordLen;
+  const total = Math.max(1, Math.ceil(Math.min(Math.max(duration, 20), 200) / progDur)) * progDur;
+  const r = rng(mood.length * 1337 + Math.round(total));
   const nChords = Math.ceil(total / chordLen);
   const totalBars = Math.ceil(total / (barBeats * beat));
   const step = mood === 'tender' ? beat : beat / 2;
@@ -232,7 +235,8 @@ export async function generateMusic(mood: MusicMood, duration: number, sampleRat
   const clap = await sample('clap', 0.25, sr, noiseHit('bandpass', 1700, 0.8, 0.22));
 
   // 2. Arrangement : mixage direct dans des tampons (bien plus rapide que des centaines de nœuds audio)
-  const N = Math.ceil(total * sr);
+  const loopN = Math.round(total * sr);
+  const N = loopN + Math.ceil(6 * sr); // + traîne (notes tenues, réverbération), repliée au début
   const dryL = new Float32Array(N),
     dryR = new Float32Array(N),
     sendL = new Float32Array(N),
@@ -266,7 +270,7 @@ export async function generateMusic(mood: MusicMood, duration: number, sampleRat
     const arpStartBar = mood === 'upbeat' ? 1 : 2;
     for (let k = 0; k * step < chordLen - 0.01; k++) {
       const t = t0 + k * step;
-      if (t / (barBeats * beat) < arpStartBar || t > total - 2.5) continue;
+      if (t / (barBeats * beat) < arpStartBar) continue;
       if (mood === 'cinematic' && r() < 0.18) continue;
       const n = notes[(k + c) % notes.length];
       const accent = k % (mood === 'tender' ? 4 : 8) === 0 ? 1 : 0.62;
@@ -277,14 +281,12 @@ export async function generateMusic(mood: MusicMood, duration: number, sampleRat
   const bassStart = mood === 'upbeat' ? 2 : 4;
   for (let bar = bassStart; bar < totalBars; bar++) {
     const t0 = bar * barBeats * beat;
-    if (t0 > total - 2) break;
     const chord = prog[Math.floor(t0 / chordLen) % prog.length];
     for (const h of mood === 'upbeat' ? [0, 1.5, 2, 3.5] : [0, 2.5]) play(basses.get(chord[0])!, t0 + h * beat, BASS, 0.15);
   }
   const drumStart = mood === 'upbeat' ? 2 : mood === 'cinematic' ? 6 : 999;
   for (let bar = drumStart; bar < totalBars; bar++) {
     const t0 = bar * barBeats * beat;
-    if (t0 > total - 3) break;
     if (mood === 'upbeat') {
       for (let b = 0; b < 4; b++) play(kick, t0 + b * beat, DRUM * 0.9, 0.12);
       for (let b = 0; b < 8; b++) play(hat, t0 + b * (beat / 2), DRUM * (b % 2 ? 0.35 : 0.16), 0.12, 0.25);
@@ -302,21 +304,23 @@ export async function generateMusic(mood: MusicMood, duration: number, sampleRat
   const room = mood === 'upbeat' ? 0.78 : 0.86;
   const revL = freeverb(sendL, sr, room, 0.35, 0);
   const revR = freeverb(sendR, sr, room, 0.35, 23);
-  const buffer = new AudioBuffer({ length: N, numberOfChannels: 2, sampleRate: sr });
+  const buffer = new AudioBuffer({ length: loopN, numberOfChannels: 2, sampleRate: sr });
   const L = buffer.getChannelData(0),
     R = buffer.getChannelData(1);
   let peak = 0;
+  // repli de la traîne sur le début : la boucle s'enchaîne sans coupure (fondus gérés au mixage)
   for (let i = 0; i < N; i++) {
-    const t = i / sr;
-    const env = Math.min(1, t / 1.2, Math.max(0, (total - 0.3 - t) / 3.2));
-    L[i] = (dryL[i] * 0.8 + revL[i] * wet) * env;
-    R[i] = (dryR[i] * 0.8 + revR[i] * wet) * env;
+    const j = i < loopN ? i : i - loopN;
+    L[j] += dryL[i] * 0.8 + revL[i] * wet;
+    R[j] += dryR[i] * 0.8 + revR[i] * wet;
+  }
+  for (let i = 0; i < loopN; i++) {
     const a = Math.max(Math.abs(L[i]), Math.abs(R[i]));
     if (a > peak) peak = a;
   }
   // normalisation puis saturation douce (limiteur)
   const k = peak > 0.0001 ? 1.15 / peak : 1;
-  for (let i = 0; i < N; i++) {
+  for (let i = 0; i < loopN; i++) {
     L[i] = Math.tanh(L[i] * k) * 0.92;
     R[i] = Math.tanh(R[i] * k) * 0.92;
   }

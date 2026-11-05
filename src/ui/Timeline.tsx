@@ -21,7 +21,15 @@ import { Storyboard } from './Storyboard';
 import { newClip } from '../story/auto';
 import { TRANSITIONS, THEMES } from '../presets';
 import { Icon } from './icons';
-import { timecode, clamp, uid } from '../util';
+import { clamp, uid } from '../util';
+
+/** Repère de règle : « 0:45 », « 12:00 », « 1:05:00 ». */
+const fmtTick = (s: number) => {
+  const h = Math.floor(s / 3600),
+    m = Math.floor((s % 3600) / 60),
+    sec = Math.floor(s % 60);
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+};
 
 const fmtMinSec = (s: number) => {
   const r = Math.round(s);
@@ -75,7 +83,29 @@ export function Timeline() {
   const scroller = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: string; x: number; over: number } | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
-  const width = Math.max(total * zoom + PAD * 2 + 200, 400);
+  // zoom progressif (logarithmique) entre « tout le film visible » et 200 px par seconde
+  const fitZoom = () => {
+    const w = (scroller.current?.clientWidth ?? 800) - PAD * 2 - 24;
+    return Math.max(0.02, Math.min(200, w / Math.max(1, total)));
+  };
+  const zMin = Math.min(fitZoom(), 12);
+  const zoomPos = Math.round((Math.log(zoom / zMin) / Math.log(200 / zMin)) * 1000);
+  const setZoomPos = (pos: number) => (timelineZoom.value = zMin * Math.pow(200 / zMin, pos / 1000));
+  const fitAll = () => {
+    timelineZoom.value = fitZoom();
+    if (scroller.current) scroller.current.scrollLeft = 0;
+  };
+  // à l'ouverture : tout le montage visible s'il dépasse la largeur
+  useEffect(() => {
+    if (total * zoom > (scroller.current?.clientWidth ?? 800)) fitAll();
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (e.key === 'z' && !e.ctrlKey && !e.metaKey && tag !== 'INPUT' && tag !== 'TEXTAREA') fitAll();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [timelineView.value]);
+  const width = Math.max(total * zoom + PAD * 2 + 24, 400);
   const sel = selectedClip.value;
 
   // suit la tête de lecture pendant la lecture
@@ -107,7 +137,8 @@ export function Timeline() {
   };
 
   // repères de la règle
-  const step = zoom > 90 ? 1 : zoom > 40 ? 2 : zoom > 20 ? 5 : 10;
+  // graduations : pas choisi pour garder au moins 70 px entre deux repères, quel que soit le zoom
+  const step = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600].find((v) => v * zoom >= 70) ?? 3600;
   const ticks: number[] = [];
   for (let s = 0; s <= total + step; s += step) ticks.push(s);
 
@@ -320,10 +351,23 @@ export function Timeline() {
           </button>
         </div>
         {timelineView.value === 'timeline' && (
-          <label class="tl-zoom">
+          <>
+          <button class="ibtn" title="Voir tout le montage (Z)" onClick={fitAll}>
+            <Icon name="maximize" size={15} />
+            <span>Tout voir</span>
+          </button>
+          <label class="tl-zoom" title="Zoom de la timeline">
             <Icon name="zoomIn" size={15} />
-            <input type="range" min={12} max={200} value={zoom} style={{ '--p': `${((zoom - 12) / 188) * 100}%` }} onInput={(e) => (timelineZoom.value = Number((e.target as HTMLInputElement).value))} />
+            <input
+              type="range"
+              min={0}
+              max={1000}
+              value={zoomPos}
+              style={{ '--p': `${zoomPos / 10}%` }}
+              onInput={(e) => setZoomPos(Number((e.target as HTMLInputElement).value))}
+            />
           </label>
+          </>
         )}
       </div>
       {timelineView.value === 'storyboard' ? (
@@ -350,7 +394,7 @@ export function Timeline() {
             <div class="ruler" onPointerDown={scrub}>
               {ticks.map((s) => (
                 <span class="tick" style={{ left: PAD + s * zoom + 'px' }}>
-                  {s % (step * 2) === 0 ? timecode(s).slice(0, 5) : ''}
+                  {fmtTick(s)}
                 </span>
               ))}
             </div>

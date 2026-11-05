@@ -382,6 +382,8 @@ export function MediaPage() {
           </div>
         )}
         <div class="side-block">
+          <details class="adv">
+          <summary class="side-title">Options de tri avancées</summary>
           <h4 class="side-title">Détection des doublons</h4>
           <p class="side-note">Les copies strictes (contenu identique) sont toujours ignorées.</p>
           <Toggle
@@ -423,6 +425,7 @@ export function MediaPage() {
             format={(v) => `${v} h sans photo`}
             onInput={(v) => (importOpts.value = { ...opts, chapterGapHours: v })}
           />
+          </details>
         </div>
         <div class="side-block grow" />
         <div class="side-block">
