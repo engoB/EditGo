@@ -140,6 +140,10 @@ class ExportSources implements SourceProvider {
       if (p.clip.type === 'title' && p.clip.background !== 'blur') continue;
       const m = this.media.get(p.clip.mediaId);
       if (!m) continue;
+      if (!m.file && !m.demo) {
+        this.current.set(p.clip.id, null);
+        continue;
+      }
       if (m.kind === 'photo' || p.clip.type === 'title') {
         if (m.kind === 'video') {
           // carton-titre sur fond vidéo : vignette
@@ -222,7 +226,7 @@ export async function runExport(opts: {
     audioSource = new AudioBufferSource({ codec: acodec, bitrate: job.quality === 'standard' ? 160_000 : 256_000 });
     output.addAudioTrack(audioSource);
   }
-  output.setMetadataTags({ title: project.title, date: new Date(), comment: 'Créé avec Souvenirs Studio' });
+  output.setMetadataTags({ title: project.title, date: new Date(), comment: 'Créé avec EditGo' });
 
   try {
     await output.start();

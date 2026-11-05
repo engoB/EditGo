@@ -1,6 +1,10 @@
 import { useMemo, useRef, useState } from 'preact/hooks';
 import { importOpts, importing, media, project, updateProject } from '../state/store';
-import { autoCreate, clearMedia, forceInclude, importFiles, loadDemo, recomputeDuplicates, toggleExcluded, applyTheme } from '../state/actions';
+import { autoCreate, forceInclude, importFiles, loadDemo, recomputeDuplicates, toggleExcluded, applyTheme, setMediaDate } from '../state/actions';
+import { newProject } from '../state/persist';
+import { RecentProjects } from './Projects';
+import { buildStory, usable } from '../story/auto';
+import { layout } from '../story/timeline';
 import { filesFromDataTransfer, filesFromDirectoryHandle } from '../media/analyze';
 import { chapters } from '../story/auto';
 import { Icon } from './icons';
@@ -85,7 +89,7 @@ function Welcome() {
           <em>montés comme au cinéma.</em>
         </h1>
         <p class="lead">
-          Déposez un dossier de photos et de vidéos (téléphone, PC, Google Drive synchronisé). Souvenirs Studio retrouve la chronologie, écarte les doublons,
+          Déposez un dossier de photos et de vidéos (téléphone, PC, Google Drive synchronisé). EditGo retrouve la chronologie, écarte les doublons,
           choisit les meilleurs moments et compose un film étalonné, titré et mis en musique — exportable jusqu’en 4K.
         </p>
         <div class="welcome-actions">
@@ -100,6 +104,7 @@ function Welcome() {
           </button>
         </div>
         <div class="drop-hint">ou glissez-déposez vos fichiers et dossiers ici</div>
+        <RecentProjects />
         <ul class="features">
           <li>
             <Icon name="clock" />
@@ -127,7 +132,7 @@ function Welcome() {
   );
 }
 
-function Tile({ m, master }: { m: MediaItem; master?: MediaItem }) {
+function Tile({ m, master, onDate }: { m: MediaItem; master?: MediaItem; onDate: () => void }) {
   const dup = !!m.duplicateOf;
   const sim = !!m.similarTo;
   const off = dup || sim || m.excluded || !!m.error;
@@ -143,14 +148,18 @@ function Tile({ m, master }: { m: MediaItem; master?: MediaItem }) {
         {dup && <span class="badge badge-warn">Doublon</span>}
         {sim && <span class="badge badge-info">{m.kind === 'video' ? 'Live Photo' : 'Similaire'}</span>}
         {m.error && <span class="badge badge-err">Illisible</span>}
-        {!m.error && m.dateSource !== 'exif' && m.dateSource !== 'video' && m.dateSource !== 'demo' && (
+        {m.missing && <span class="badge badge-err">Absent · à réimporter</span>}
+        {m.dateSource === 'manual' && <span class="badge badge-dim">Date corrigée</span>}
+        {!m.error && (m.dateSource === 'filename' || m.dateSource === 'file') && (
           <span class="badge badge-dim" title={m.dateSource === 'filename' ? 'Date lue dans le nom du fichier' : 'Date de modification du fichier'}>
             ≈ date
           </span>
         )}
       </div>
       <div class="tile-foot">
-        <span>{formatTime(m.date)}</span>
+        <button class="tile-date" onClick={onDate} title="Corriger la date et l’heure (change sa place dans la chronologie)">
+          <Icon name="calendar" size={11} /> {formatTime(m.date)}
+        </button>
         <span class="score" style={{ '--s': m.score }} title={`Qualité estimée ${(m.score * 100).toFixed(0)} %`} />
       </div>
       <div class="tile-actions">
@@ -194,11 +203,18 @@ function ThemePicker() {
 export function MediaPage() {
   const items = media.value;
   const [filter, setFilter] = useState<Filter>('all');
-  const [confirmClear, setConfirmClear] = useState(false);
+  const [dateEdit, setDateEdit] = useState<MediaItem | null>(null);
   const { inputs, pickFiles, pickFolder } = useImporters();
   const drop = useDropZone();
   const opts = importOpts.value;
   const byId = useMemo(() => new Map(items.map((m) => [m.id, m])), [items]);
+
+  // durée du film si l'on garde tout (estimation rapide sur le montage automatique)
+  const natural = useMemo(() => {
+    const p = project.value;
+    const st = buildStory(items.filter(usable), { ...p, buildMode: 'all', title: 'x', subtitle: 'x' }, opts.chapterGapHours);
+    return layout(st.clips ?? []).total;
+  }, [items, project.value.theme, project.value.photoDuration, project.value.music.beatSync, project.value.music.bpm, opts.chapterGapHours]);
 
   if (!items.length && !importing.value) return <Welcome />;
 
@@ -325,21 +341,10 @@ export function MediaPage() {
         </div>
         <div class="side-block grow" />
         <div class="side-block">
-          {confirmClear ? (
-            <div class="confirm-row">
-              <span>Retirer tous les médias et le montage ?</span>
-              <button class="btn btn-danger btn-sm" onClick={() => (clearMedia(), setConfirmClear(false))}>
-                Retirer
-              </button>
-              <button class="btn btn-quiet btn-sm" onClick={() => setConfirmClear(false)}>
-                Annuler
-              </button>
-            </div>
-          ) : (
-            <button class="btn btn-quiet btn-sm" onClick={() => setConfirmClear(true)}>
-              <Icon name="trash" size={14} /> Tout retirer
-            </button>
-          )}
+          <p class="side-note">Le projet est enregistré automatiquement sur cet appareil.</p>
+          <button class="btn btn-quiet btn-sm" onClick={newProject}>
+            <Icon name="plus" size={14} /> Nouveau projet
+          </button>
         </div>
       </aside>
 
@@ -368,7 +373,7 @@ export function MediaPage() {
                 </h3>
                 <div class="tiles">
                   {g.items.map((m) => (
-                    <Tile key={m.id} m={m} master={byId.get(m.duplicateOf || m.similarTo || '')} />
+                    <Tile key={m.id} m={m} master={byId.get(m.duplicateOf || m.similarTo || '')} onDate={() => setDateEdit(m)} />
                   ))}
                 </div>
               </div>
@@ -386,18 +391,32 @@ export function MediaPage() {
         </p>
         <h4 class="side-title">Ambiance</h4>
         <ThemePicker />
-        <h4 class="side-title">Durée du film</h4>
-        <Segmented<number>
-          value={project.value.targetLength}
-          onChange={(v) => updateProject({ targetLength: v })}
-          options={[
-            { value: 30, label: '30 s' },
-            { value: 60, label: '1 min' },
-            { value: 120, label: '2 min' },
-            { value: 180, label: '3 min' },
-            { value: 0, label: 'Tout' },
-          ]}
-        />
+        <h4 class="side-title">Construction</h4>
+        <div class="build-modes">
+          <button class={'build-mode' + (project.value.buildMode === 'all' ? ' on' : '')} onClick={() => updateProject({ buildMode: 'all' })}>
+            <b>Tous les médias</b>
+            <small>Chaque photo et chaque vidéo en entier · durée naturelle ≈ {fmtDuration(natural)}</small>
+          </button>
+          <button class={'build-mode' + (project.value.buildMode === 'best' ? ' on' : '')} onClick={() => updateProject({ buildMode: 'best' })}>
+            <b>Meilleurs moments</b>
+            <small>Sélection des plus belles images pour une durée choisie</small>
+          </button>
+        </div>
+        {project.value.buildMode === 'best' ? (
+          <Segmented<number>
+            value={project.value.targetLength}
+            onChange={(v) => updateProject({ targetLength: v })}
+            options={[
+              { value: 30, label: '30 s' },
+              { value: 60, label: '1 min' },
+              { value: 120, label: '2 min' },
+              { value: 180, label: '3 min' },
+              { value: 300, label: '5 min' },
+            ]}
+          />
+        ) : (
+          <p class="side-note">Après création, allongez ou raccourcissez le film entier depuis le montage (onglet Style ou boutons − / + de la timeline).</p>
+        )}
         <label class="field">
           <span class="field-label">Titre (facultatif)</span>
           <input class="input" placeholder="Titre automatique selon les dates" value={project.value.title} onInput={(e) => updateProject({ title: (e.target as HTMLInputElement).value }, false)} />
@@ -406,12 +425,62 @@ export function MediaPage() {
           <Icon name="sparkles" /> {project.value.clips.length ? 'Recréer le film' : 'Créer le film'}
         </button>
       </aside>
+      {dateEdit && <DateDialog m={dateEdit} onClose={() => setDateEdit(null)} />}
       {drop.over && (
         <div class="drop-overlay">
           <Icon name="upload" size={40} />
           Déposez pour importer
         </div>
       )}
+    </div>
+  );
+}
+
+const toLocalInput = (t: number) => {
+  const d = new Date(t);
+  const z = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`;
+};
+
+const SOURCE_LABEL: Record<string, string> = {
+  exif: 'lue dans la photo (EXIF)',
+  video: 'lue dans la vidéo',
+  filename: 'déduite du nom du fichier',
+  file: 'date de modification du fichier',
+  demo: 'démo',
+  manual: 'corrigée à la main',
+};
+
+export function DateDialog({ m, onClose }: { m: MediaItem; onClose: () => void }) {
+  const [v, setV] = useState(toLocalInput(m.date));
+  const apply = () => {
+    const t = new Date(v).getTime();
+    if (isFinite(t)) setMediaDate(m.id, t);
+    onClose();
+  };
+  return (
+    <div class="modal-back" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div class="modal" role="dialog" aria-label="Corriger la date">
+        <div class="modal-head">
+          {m.thumb && <img src={m.thumb} alt="" />}
+          <div>
+            <b>Date et heure de prise de vue</b>
+            <small>
+              {m.name} · {SOURCE_LABEL[m.dateSource]}
+            </small>
+          </div>
+        </div>
+        <input id="media-date" class="input" type="datetime-local" value={v} onInput={(e) => setV((e.target as HTMLInputElement).value)} />
+        <p class="side-note">La date détermine la place du média dans la chronologie et dans le prochain montage automatique.</p>
+        <div class="modal-actions">
+          <button class="btn btn-quiet" onClick={onClose}>
+            Annuler
+          </button>
+          <button class="btn btn-primary" onClick={apply}>
+            <Icon name="check" size={16} /> Appliquer
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

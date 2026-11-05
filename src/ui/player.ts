@@ -24,6 +24,10 @@ class PreviewSources implements SourceProvider {
       const th = thumbImage(m);
       return th ? { key: 't:' + m.id, image: th, w: th.naturalWidth, h: th.naturalHeight, dynamic: false } : null;
     }
+    if (!m.file) {
+      const th0 = thumbImage(m);
+      return th0 ? { key: 't:' + m.id, image: th0, w: th0.naturalWidth, h: th0.naturalHeight, dynamic: false } : null;
+    }
     const v = this.video(p, m);
     this.active.add(p.clip.id);
     const target = sourceTime(p, t);
@@ -56,7 +60,7 @@ class PreviewSources implements SourceProvider {
       if (p.end < t - 1 || p.start > t + 10) continue;
       const m = p.clip.mediaId ? media.get(p.clip.mediaId) : undefined;
       if (m?.kind === 'photo' && !this.images.has(m.id)) void this.images.load(m).then(() => this.onReady());
-      if (m?.kind === 'video' && p.clip.type === 'media' && p.start > t) {
+      if (m?.kind === 'video' && m.file && p.clip.type === 'media' && p.start > t) {
         const v = this.video(p, m);
         if (!playing.value && Math.abs(v.currentTime - p.clip.trimIn) > 0.05 && !v.seeking) v.currentTime = p.clip.trimIn;
       }

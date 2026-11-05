@@ -1,7 +1,7 @@
 // Médias de démonstration générés procéduralement (paysages d'un court voyage),
 // pour essayer l'application sans fichiers. Inclut volontairement des doublons
 // et une rafale pour montrer la détection.
-import type { MediaItem } from '../types';
+import type { DemoSpec, MediaItem } from '../types';
 import { blankItem, analyzePixels } from './analyze';
 import { rng } from '../util';
 
@@ -174,6 +174,22 @@ function drawScene(scene: Scene, seed: number, w: number, h: number): HTMLCanvas
   return c;
 }
 
+/** Fonction de dessin d'un média de démo (régénérable à partir de ses paramètres). */
+export function demoDrawer(spec: DemoSpec, w: number, h: number): { draw: (cw: number, ch: number) => HTMLCanvasElement } {
+  return {
+    draw: (cw, ch) => {
+      const src = drawScene(spec.scene as Scene, spec.seed, w, h);
+      const c = document.createElement('canvas');
+      c.width = cw;
+      c.height = ch;
+      const g = c.getContext('2d')!;
+      // rafale : léger décalage de cadrage entre les vues
+      g.drawImage(src, -spec.shift * cw, 0, cw * (1 + spec.shift), ch * (1 + spec.shift * 0.5));
+      return c;
+    },
+  };
+}
+
 export function makeDemo(): MediaItem[] {
   const start = new Date();
   start.setMonth(6, 12);
@@ -210,19 +226,8 @@ export function makeDemo(): MediaItem[] {
       it.height = h;
       it.date = base + p.at * H + k * 1500;
       it.dateSource = 'demo';
-      const shift = k * 0.012;
-      it.demo = {
-        draw: (cw, ch) => {
-          const src = drawScene(p.scene, seed, w, h);
-          const c = document.createElement('canvas');
-          c.width = cw;
-          c.height = ch;
-          const g = c.getContext('2d')!;
-          // rafale : léger décalage de cadrage entre les vues
-          g.drawImage(src, -shift * cw, 0, cw * (1 + shift), ch * (1 + shift * 0.5));
-          return c;
-        },
-      };
+      it.demoSpec = { scene: p.scene, seed, shift: k * 0.012 };
+      it.demo = demoDrawer(it.demoSpec, w, h);
       const small = it.demo.draw(Math.round(w / 5), Math.round(h / 5));
       Object.assign(it, analyzePixels(small, small.width, small.height));
       it.thumb = small.toDataURL('image/jpeg', 0.8);

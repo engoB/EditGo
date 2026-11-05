@@ -3,9 +3,11 @@ import './fonts.css';
 import './styles.css';
 import { App } from './ui/App';
 import { loadTitleFonts } from './render/titles';
+import { startAutosave } from './state/persist';
 
 render(<App />, document.getElementById('app')!);
 void loadTitleFonts();
+startAutosave();
 
 // Service worker : application utilisable hors ligne après la première visite.
 if (!__SINGLE__ && 'serviceWorker' in navigator && location.protocol === 'https:') {

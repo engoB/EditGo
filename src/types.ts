@@ -1,7 +1,7 @@
-// Modèle de données central de Souvenirs Studio.
+// Modèle de données central d’EditGo.
 
 export type MediaKind = 'photo' | 'video';
-export type DateSource = 'exif' | 'video' | 'filename' | 'file' | 'demo';
+export type DateSource = 'exif' | 'video' | 'filename' | 'file' | 'demo' | 'manual';
 
 export interface FocusPoint {
   x: number; // 0..1
@@ -14,6 +14,10 @@ export interface MediaItem {
   file: File | null; // null pour les médias de démonstration
   /** Source synthétique (démo) : bitmap déjà prêt. */
   demo?: { draw: (w: number, h: number) => HTMLCanvasElement };
+  /** Paramètres permettant de régénérer un média de démo (sauvegarde). */
+  demoSpec?: DemoSpec;
+  /** Fichier absent après réouverture d'un projet (à réimporter). */
+  missing?: boolean;
   name: string;
   path: string;
   size: number;
@@ -56,6 +60,12 @@ export type TitleStyleId = 'cinema' | 'elegant' | 'bold' | 'minimal' | 'script' 
 export type AspectId = '16:9' | '9:16' | '1:1' | '4:5' | '21:9';
 export type ThemeId = 'cinema' | 'douceur' | 'energie' | 'argentique' | 'noirblanc' | 'epure';
 export type MusicMood = 'cinematic' | 'tender' | 'upbeat';
+
+export interface DemoSpec {
+  scene: string;
+  seed: number;
+  shift: number;
+}
 
 export interface TitleSpec {
   text: string;
@@ -106,7 +116,9 @@ export interface Project {
   bloom: number;
   letterbox: boolean;
   photoDuration: number;
-  targetLength: number; // s, 0 = tout
+  /** 'all' : tous les médias, durée naturelle ; 'best' : meilleurs moments sur une durée cible. */
+  buildMode: 'all' | 'best';
+  targetLength: number; // s (mode 'best')
   music: MusicSettings;
   clips: Clip[];
 }

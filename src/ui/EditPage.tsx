@@ -4,6 +4,8 @@ import {
   media,
   mobilePanel,
   musicBusy,
+  musicBuffer,
+  beginGesture,
   playhead,
   playing,
   project,
@@ -14,7 +16,9 @@ import {
   removeClip,
   toast,
 } from '../state/store';
-import { applyTheme, prepareMusic, rebuildStory, setMusicFile } from '../state/actions';
+import { applyTheme, moveClipTo, nudgeClip, placeClipByDate, prepareMusic, rebuildStory, retimeFilm, setMediaDate, setMusicFile } from '../state/actions';
+import { retimeRange } from '../story/retime';
+import type { Clip as ClipT } from '../types';
 import { Player } from './player';
 import { Timeline } from './Timeline';
 import { Icon } from './icons';
@@ -189,6 +193,7 @@ function ClipInspector({ c }: { c: Clip }) {
   const m = c.mediaId ? mediaMap.value.get(c.mediaId) : undefined;
   const isVideo = c.type === 'media' && m?.kind === 'video';
   const idx = project.value.clips.findIndex((x) => x.id === c.id);
+  const count = project.value.clips.length;
   const set = (patch: Partial<Clip>, h = true) => updateClip(c.id, patch, h);
   const duplicate = () => {
     updateProject((p) => {
@@ -206,6 +211,56 @@ function ClipInspector({ c }: { c: Clip }) {
           <small>{m ? `${m.name} · ${new Date(m.date).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}` : 'Fond ' + (c.background === 'black' ? 'noir' : 'dégradé')}</small>
         </div>
       </div>
+      <Section title="Place dans le film">
+        <div class="place-row">
+          <button class="ibtn" title="Plus tôt (Alt+←)" disabled={idx === 0} onClick={() => nudgeClip(c.id, -1)}>
+            <Icon name="stepBack" size={16} />
+          </button>
+          <label class="place-pos">
+            Plan
+            <input
+              id="clip-pos"
+              class="input"
+              type="number"
+              min={1}
+              max={count}
+              value={idx + 1}
+              onChange={(e) => {
+                const v = Math.round(Number((e.target as HTMLInputElement).value));
+                if (v >= 1 && v <= count) moveClipTo(c.id, v - 1);
+              }}
+            />
+            sur {count}
+          </label>
+          <button class="ibtn" title="Plus tard (Alt+→)" disabled={idx === count - 1} onClick={() => nudgeClip(c.id, 1)}>
+            <Icon name="stepFwd" size={16} />
+          </button>
+        </div>
+        {m && c.type === 'media' && (
+          <>
+            <label class="field">
+              <span class="field-label">Date de prise de vue{m.dateSource === 'manual' ? ' (corrigée)' : ''}</span>
+              <input
+                id="clip-date"
+                class="input"
+                type="datetime-local"
+                value={toLocalInput(m.date)}
+                onChange={(e) => {
+                  const t = new Date((e.target as HTMLInputElement).value).getTime();
+                  if (isFinite(t)) {
+                    setMediaDate(m.id, t);
+                    placeClipByDate(c.id);
+                  }
+                }}
+              />
+            </label>
+            <button class="btn btn-ghost btn-sm btn-block" onClick={() => placeClipByDate(c.id)}>
+              <Icon name="clock" size={14} /> Replacer selon la date
+            </button>
+          </>
+        )}
+        <p class="side-note">Astuce : en vue Storyboard, glissez simplement la vignette à sa nouvelle place.</p>
+      </Section>
       <Section title="Durée & rythme">
         <Slider
           label="Durée à l’écran"
@@ -327,10 +382,86 @@ function ClipInspector({ c }: { c: Clip }) {
   );
 }
 
+function FilmDuration() {
+  const p = project.value;
+  const total = timeline.value.total;
+  const base = useRef<ClipT[] | null>(null);
+  const [text, setText] = useState('');
+  const range = retimeRange(base.current ?? p.clips, mediaMap.value);
+  const hi = Math.max(total, Math.min(range.max, Math.max(total * 3, range.min + 60)));
+  const lo = Math.min(total, range.min);
+  const music = musicBuffer.value;
+  const musicLen = p.music.kind === 'file' && music ? music.duration - p.music.offset : 0;
+  const mmss = (v: number) => {
+    const r = Math.round(v);
+    return `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`;
+  };
+  const applyText = () => {
+    const m = /^\s*(?:(\d+)\s*[:m]\s*)?(\d+(?:[.,]\d+)?)\s*s?\s*$/.exec(text);
+    if (!m) return toast('Durée attendue au format 2:30 ou 150', 'warn');
+    const v = (Number(m[1] ?? 0) * 60) + Number(m[2].replace(',', '.'));
+    if (v > 0) retimeFilm(v);
+    setText('');
+  };
+  if (!p.clips.length) return null;
+  return (
+    <Section title="Durée du film">
+      <div class="dur-big">
+        <b>{mmss(total)}</b>
+        <small>
+          possible de {mmss(range.min)} à {mmss(range.max)}
+        </small>
+      </div>
+      <input
+        id="film-duration"
+        type="range"
+        min={lo}
+        max={hi}
+        step={0.5}
+        value={total}
+        style={{ '--p': `${((total - lo) / Math.max(1, hi - lo)) * 100}%` }}
+        onPointerDown={() => {
+          beginGesture();
+          base.current = project.value.clips;
+        }}
+        onPointerUp={() => (base.current = null)}
+        onInput={(e) => retimeFilm(Number((e.target as HTMLInputElement).value), base.current ?? undefined, false)}
+      />
+      <div class="dur-row">
+        <button class="btn btn-ghost btn-sm" onClick={() => retimeFilm(total * 0.9)}>
+          − 10 %
+        </button>
+        <form
+          class="dur-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            applyText();
+          }}
+        >
+          <input id="film-duration-text" class="input" placeholder="ex. 2:30" value={text} onInput={(e) => setText((e.target as HTMLInputElement).value)} />
+          <button class="btn btn-ghost btn-sm" type="submit">
+            OK
+          </button>
+        </form>
+        <button class="btn btn-ghost btn-sm" onClick={() => retimeFilm(total * 1.1)}>
+          + 10 %
+        </button>
+      </div>
+      {musicLen > 5 && (
+        <button class="btn btn-quiet btn-sm" onClick={() => retimeFilm(musicLen)}>
+          <Icon name="music" size={14} /> Caler sur la durée du morceau ({mmss(musicLen)})
+        </button>
+      )}
+      <p class="side-note">Toutes les durées sont ajustées proportionnellement ; les vidéos ne dépassent jamais leur longueur réelle.</p>
+    </Section>
+  );
+}
+
 function StyleInspector() {
   const p = project.value;
   return (
     <>
+      <FilmDuration />
       <Section title="Ambiance">
         <div class="theme-list">
           {(Object.keys(THEMES) as ThemeId[]).map((id) => (
@@ -370,18 +501,29 @@ function StyleInspector() {
       </Section>
       <Section title="Rythme du montage">
         <Slider label="Durée des photos" value={p.photoDuration} min={1} max={8} step={0.1} format={(v) => v.toFixed(1) + ' s'} onInput={(v) => updateProject({ photoDuration: v }, false)} />
-        <Segmented<number>
+        <Segmented<'all' | 'best'>
           small
-          value={p.targetLength}
-          onChange={(v) => updateProject({ targetLength: v })}
+          value={p.buildMode}
+          onChange={(v) => updateProject({ buildMode: v })}
           options={[
-            { value: 30, label: '30 s' },
-            { value: 60, label: '1 min' },
-            { value: 120, label: '2 min' },
-            { value: 180, label: '3 min' },
-            { value: 0, label: 'Tout' },
+            { value: 'all', label: 'Tous les médias' },
+            { value: 'best', label: 'Meilleurs moments' },
           ]}
         />
+        {p.buildMode === 'best' && (
+          <Segmented<number>
+            small
+            value={p.targetLength}
+            onChange={(v) => updateProject({ targetLength: v })}
+            options={[
+              { value: 30, label: '30 s' },
+              { value: 60, label: '1 min' },
+              { value: 120, label: '2 min' },
+              { value: 180, label: '3 min' },
+              { value: 300, label: '5 min' },
+            ]}
+          />
+        )}
         <button class="btn btn-ghost btn-block btn-sm" onClick={rebuildStory}>
           <Icon name="wand" size={14} /> Recomposer le montage
         </button>
@@ -551,4 +693,10 @@ export function EditPage() {
       </nav>
     </div>
   );
+}
+
+function toLocalInput(t: number) {
+  const d = new Date(t);
+  const z = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`;
 }

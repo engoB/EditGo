@@ -1,6 +1,7 @@
 import { useEffect } from 'preact/hooks';
 import { canRedo, canUndo, historyRev, media, page, playhead, playing, project, redo, removeClip, selectedClip, timeline, undo, updateProject, type Page } from '../state/store';
-import { autoCreate } from '../state/actions';
+import { autoCreate, nudgeClip } from '../state/actions';
+import { ProjectsPanel, SaveIndicator, projectsOpen } from './Projects';
 import { MediaPage } from './MediaPage';
 import { EditPage } from './EditPage';
 import { ExportPage } from './ExportPage';
@@ -35,6 +36,9 @@ function useShortcuts() {
       if (e.code === 'Space') {
         e.preventDefault();
         playing.value = !playing.value;
+      } else if (e.altKey && selectedClip.value && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        nudgeClip(selectedClip.value, e.key === 'ArrowLeft' ? -1 : 1);
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault();
         playing.value = false;
@@ -79,7 +83,7 @@ export function App() {
             </svg>
           </span>
           <span class="brand-name">
-            Souvenirs<em>Studio</em>
+            Edit<em>Go</em>
           </span>
         </div>
         {hasMedia && (
@@ -107,6 +111,11 @@ export function App() {
           ))}
         </nav>
         <div class="top-actions">
+          <SaveIndicator />
+          <button class="ibtn" title="Projets enregistrés" onClick={() => (projectsOpen.value = true)}>
+            <Icon name="folder" size={16} />
+            <span class="hide-sm">Projets</span>
+          </button>
           <button class="ibtn" title="Annuler (Ctrl+Z)" disabled={!canUndo()} onClick={undo}>
             <Icon name="undo" size={16} />
           </button>
@@ -130,6 +139,7 @@ export function App() {
         {page.value === 'edit' && <EditPage />}
         {page.value === 'export' && <ExportPage />}
       </main>
+      <ProjectsPanel />
       <Toasts />
     </div>
   );

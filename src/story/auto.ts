@@ -12,7 +12,7 @@ export interface Chapter {
   label: string;
 }
 
-export const usable = (m: MediaItem) => !m.duplicateOf && !m.similarTo && !m.excluded && !m.error;
+export const usable = (m: MediaItem) => !m.duplicateOf && !m.similarTo && !m.excluded && !m.error && !m.missing;
 
 export function chapters(items: MediaItem[], gapHours: number): Chapter[] {
   const sorted = items.filter(usable).sort((a, b) => a.date - b.date);
@@ -80,13 +80,15 @@ export function buildStory(items: MediaItem[], project: Project, gapHours: numbe
   if (!all.length) return { clips: [] };
   const beat = project.music.kind !== 'none' && project.music.beatSync && project.music.bpm > 0 ? 60 / project.music.bpm : 0;
   const photoDur = project.photoDuration;
-  const videoMax = Math.max(3, photoDur * 1.8);
+  const all_ = project.buildMode === 'all';
+  // mode « tous les médias » : rien n'est écarté ni raccourci (vidéos complètes)
+  const videoMax = all_ ? Infinity : Math.max(3, photoDur * 1.8);
   const trans = theme.transitionDuration;
 
   // Estimation de la durée de chaque média puis sélection selon la durée cible.
   const estimate = (m: MediaItem) => (m.kind === 'video' ? Math.min(m.duration, videoMax) : photoDur) - trans * 0.6;
   const fullLength = all.reduce((s, m) => s + estimate(m), 0);
-  const target = project.targetLength > 0 ? project.targetLength - 6 : Infinity;
+  const target = !all_ && project.targetLength > 0 ? project.targetLength - 6 : Infinity;
   let selected = new Set(all.map((m) => m.id));
   if (fullLength > target) {
     // budget par chapitre proportionnel à la racine du nombre de médias (évite qu'un gros chapitre écrase les autres)
@@ -143,8 +145,9 @@ export function buildStory(items: MediaItem[], project: Project, gapHours: numbe
       if (m.kind === 'video') {
         const len = Math.min(m.duration, videoMax);
         // segment central : on évite les premières secondes souvent tremblées
-        trimIn = Math.max(0, Math.min(m.duration - len, m.duration * 0.12));
-        duration = snap(len, beat, !!beat && len > beat);
+        trimIn = all_ ? 0 : Math.max(0, Math.min(m.duration - len, m.duration * 0.12));
+        // en mode « tous les médias », la vidéo garde toute sa longueur
+        duration = all_ ? len : snap(len, beat, !!beat && len > beat);
         if (trimIn + duration > m.duration) duration = Math.max(0.5, m.duration - trimIn);
       } else {
         // les meilleures photos restent un peu plus longtemps

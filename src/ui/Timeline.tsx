@@ -13,11 +13,19 @@ import {
   updateProject,
   beginGesture,
   removeClip,
+  timelineView,
 } from '../state/store';
+import { retimeFilm, sortClipsByDate } from '../state/actions';
+import { Storyboard } from './Storyboard';
 import { newClip } from '../story/auto';
 import { TRANSITIONS, THEMES } from '../presets';
 import { Icon } from './icons';
 import { timecode, clamp, uid } from '../util';
+
+const fmtMinSec = (s: number) => {
+  const r = Math.round(s);
+  return `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`;
+};
 import type { Clip } from '../types';
 
 const PAD = 16;
@@ -248,15 +256,38 @@ export function Timeline() {
           <Icon name="trash" size={16} />
           <span>Supprimer</span>
         </button>
+        <button class="ibtn" title="Remettre tous les plans dans l’ordre chronologique" disabled={placed.length < 2} onClick={sortClipsByDate}>
+          <Icon name="clock" size={16} />
+          <span>Trier par date</span>
+        </button>
         <div class="tl-spacer" />
-        <span class="tl-info">
-          {placed.length} plans · {timecode(total)}
-        </span>
-        <label class="tl-zoom">
-          <Icon name="zoomIn" size={15} />
-          <input type="range" min={12} max={200} value={zoom} onInput={(e) => (timelineZoom.value = Number((e.target as HTMLInputElement).value))} />
-        </label>
+        <div class="dur-ctl" title="Durée du film : raccourcir / allonger de 10 %">
+          <button class="ibtn" disabled={!placed.length} onClick={() => retimeFilm(total * 0.9)} aria-label="Raccourcir le film">
+            <Icon name="minus" size={15} />
+          </button>
+          <span class="dur-val">{fmtMinSec(total)}</span>
+          <button class="ibtn" disabled={!placed.length} onClick={() => retimeFilm(total * 1.1)} aria-label="Allonger le film">
+            <Icon name="plus" size={15} />
+          </button>
+        </div>
+        <div class="seg seg-sm view-seg">
+          <button class={timelineView.value === 'timeline' ? 'on' : ''} onClick={() => (timelineView.value = 'timeline')}>
+            Timeline
+          </button>
+          <button class={timelineView.value === 'storyboard' ? 'on' : ''} onClick={() => (timelineView.value = 'storyboard')}>
+            Storyboard
+          </button>
+        </div>
+        {timelineView.value === 'timeline' && (
+          <label class="tl-zoom">
+            <Icon name="zoomIn" size={15} />
+            <input type="range" min={12} max={200} value={zoom} style={{ '--p': `${((zoom - 12) / 188) * 100}%` }} onInput={(e) => (timelineZoom.value = Number((e.target as HTMLInputElement).value))} />
+          </label>
+        )}
       </div>
+      {timelineView.value === 'storyboard' ? (
+        <Storyboard />
+      ) : (
       <div class="tl-body">
         <div class="tl-heads">
           <div class="tl-head ruler-h" />
@@ -350,6 +381,7 @@ export function Timeline() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

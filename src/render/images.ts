@@ -9,7 +9,8 @@ export async function decodeImage(item: MediaItem, maxSide: number): Promise<Dec
     const c = item.demo.draw(Math.round(item.width * s), Math.round(item.height * s));
     return { image: c, w: c.width, h: c.height };
   }
-  const file = item.file!;
+  if (!item.file) throw new Error('Fichier absent');
+  const file = item.file;
   const s = Math.min(1, maxSide / Math.max(item.width, item.height));
   const tw = Math.max(1, Math.round(item.width * s));
   const th = Math.max(1, Math.round(item.height * s));

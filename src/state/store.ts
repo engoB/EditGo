@@ -17,6 +17,7 @@ export function defaultProject(): Project {
     bloom: th.bloom,
     letterbox: th.letterbox,
     photoDuration: th.photoDuration,
+    buildMode: 'all',
     targetLength: 60,
     music: { kind: 'generated', mood: th.mood, fileName: '', volume: 0.8, ducking: true, beatSync: true, bpm: 84, offset: 0 },
     clips: [],
@@ -39,6 +40,7 @@ export const musicBuffer = signal<AudioBuffer | null>(null);
 export const musicFile = signal<File | null>(null);
 export const musicBusy = signal(false);
 export const timelineZoom = signal(60); // px par seconde
+export const timelineView = signal<'timeline' | 'storyboard'>('timeline');
 export const mobilePanel = signal<'viewer' | 'media' | 'inspector'>('viewer');
 
 export interface Toast {
@@ -80,6 +82,11 @@ export function redo() {
   if (!nxt) return;
   undoStack.push(snap());
   project.value = JSON.parse(nxt);
+  historyRev.value++;
+}
+export function resetHistory() {
+  undoStack.length = 0;
+  redoStack.length = 0;
   historyRev.value++;
 }
 export const canUndo = () => undoStack.length > 0;

@@ -25,8 +25,8 @@ export default defineConfig(({ mode }) => {
             registerType: 'autoUpdate',
             includeAssets: ['icon.svg', 'apple-touch-icon.png'],
             manifest: {
-              name: 'Souvenirs Studio',
-              short_name: 'Souvenirs',
+              name: 'EditGo — films souvenirs',
+              short_name: 'EditGo',
               description: 'Films souvenirs automatiques, 100 % hors ligne, à partir de vos photos et vidéos.',
               lang: 'fr',
               theme_color: '#0d0d10',

@@ -363,7 +363,7 @@ export function markDuplicates(items: MediaItem[], opts: ImportOptions) {
     arr.push(it);
     byHash.set(it.hash, arr);
   }
-  const rank = (m: MediaItem) => ({ exif: 0, video: 0, filename: 1, demo: 1, file: 2 })[m.dateSource];
+  const rank = (m: MediaItem) => ({ exif: 0, video: 0, manual: 0, filename: 1, demo: 1, file: 2 })[m.dateSource];
   for (const group of byHash.values()) {
     if (group.length < 2) continue;
     group.sort((a, b) => rank(a) - rank(b) || a.date - b.date || a.name.length - b.name.length);

@@ -1,4 +1,4 @@
-# Souvenirs Studio
+# EditGo
 
 Création automatique de films souvenirs à partir des photos et vidéos d'un téléphone, d'un dossier du PC ou d'un dossier Google Drive synchronisé. Tout est calculé sur l'appareil : aucun fichier n'est envoyé en ligne, et l'application fonctionne hors ligne après la première visite (PWA).
 
@@ -14,11 +14,21 @@ Version autonome en un seul fichier : **https://engob.github.io/EditGo/editgo-ho
 - Quasi-doublons regroupés, réglables : rafales, copies recompressées (dHash + signature 16×16), vidéos Live Photo. La meilleure image du groupe est gardée ; « Garder aussi » réintègre une image.
 - Score de qualité (netteté, exposition, contraste, couleurs) et point d'intérêt pour le cadrage.
 
+**Projets**
+- Enregistrement automatique sur l'appareil (IndexedDB + copie locale des médias, dédupliquée) : on rouvre un projet sans rien réimporter.
+- Panneau « Projets » : reprendre, renommer, supprimer ; exporter / importer un projet en `.editgo.json` (les médias absents se réassocient en réimportant le dossier).
+
 **Montage automatique**
+- Deux constructions : **Tous les médias** (par défaut — chaque photo et chaque vidéo en entier, durée naturelle affichée avant création) ou **Meilleurs moments** (sélection pour 30 s à 5 min).
+- Durée du film ajustable après coup : curseur, durée exacte (ex. `2:30`), ±10 %, calage sur la longueur du morceau ; les proportions sont conservées et une vidéo ne dépasse jamais sa longueur réelle.
 - Découpage en moments (écart de temps réglable), titres de chapitres datés.
-- Sélection des meilleurs plans selon la durée visée (30 s → tout).
 - 6 ambiances : Cinéma, Douceur, Énergie, Argentique, Noir & blanc, Épure (étalonnage, transitions, titrage, rythme, musique).
 - Coupes calées sur le tempo de la musique.
+
+**Replacer une photo ou une vidéo**
+- Storyboard : vignettes numérotées à glisser-déposer (appui long sur écran tactile).
+- Dans l'inspecteur : flèches plus tôt / plus tard, numéro de position, date de prise de vue modifiable et « Replacer selon la date ».
+- Sur la page Médias, clic sur l'heure d'une vignette pour corriger sa date ; « Trier par date » remet tout le montage dans l'ordre chronologique. Raccourci : Alt + ← / →.
 
 **Édition**
 - Timeline : réordonner par glisser, rogner la durée ou le point d'entrée d'une vidéo depuis les bords, couper à la tête de lecture, cartons-titres.
