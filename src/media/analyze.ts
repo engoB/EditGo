@@ -1,13 +1,14 @@
 // Analyse des médias importés : date, vignette, empreintes (exacte + perceptuelle),
 // score de qualité et point d'intérêt (pour le cadrage Ken Burns).
 import type { FocusPoint, ImportOptions, MediaItem } from '../types';
-import { readExif } from './exif';
-import { dateFromName } from './dates';
-import { videoCreationDate } from './mp4date';
+import { readExif, type ExifInfo } from './exif';
+import { applyBest, collectDates } from './redate';
+import { NEEDS_DECODE, ensureDecoder } from './codecs';
+import { FrameReader } from './framereader';
 import { uid } from '../util';
 
 const PHOTO_EXT = /\.(jpe?g|png|webp|gif|bmp|avif|heic|heif|tiff?)$/i;
-const VIDEO_EXT = /\.(mp4|m4v|mov|webm|mkv|3gp|avi|ogv)$/i;
+const VIDEO_EXT = /\.(mp4|m4v|mov|webm|mkv|3gp|avi|ogv|mts|m2ts|mod|tod|vob|mpg|mpeg)$/i;
 
 export function mediaKindOf(file: File): 'photo' | 'video' | null {
   if (file.type.startsWith('image/') || PHOTO_EXT.test(file.name)) return 'photo';
@@ -192,12 +193,8 @@ async function canvasToThumb(src: CanvasImageSource, sw: number, sh: number): Pr
 }
 
 // ---------- Photos ----------
-async function analyzePhoto(file: File, item: MediaItem) {
+async function analyzePhoto(file: File, item: MediaItem): Promise<ExifInfo> {
   const exif = await readExif(file);
-  if (exif.date) {
-    item.date = exif.date;
-    item.dateSource = 'exif';
-  }
   if (exif.make || exif.model) item.camera = [exif.make, exif.model].filter(Boolean).join(' ').trim();
   let bmp: ImageBitmap | null = null;
   // Grandes photos dont l'EXIF donne les dimensions : décodage direct en petite taille (bien plus rapide)
@@ -238,6 +235,7 @@ async function analyzePhoto(file: File, item: MediaItem) {
   item.thumb = await canvasToThumb(bmp, bmp.width, bmp.height);
   Object.assign(item, analyzePixels(bmp, bmp.width, bmp.height));
   bmp.close();
+  return exif;
 }
 
 // ---------- Vidéos ----------
@@ -270,32 +268,25 @@ async function videoFrameViaElement(file: File, at: number): Promise<{ c: HTMLCa
 }
 
 async function analyzeVideo(file: File, item: MediaItem) {
-  const created = await videoCreationDate(file);
-  if (created) {
-    item.date = created;
-    item.dateSource = 'video';
-  }
+  item.decode = NEEDS_DECODE.test(file.name);
   let frame: CanvasImageSource | null = null;
   let fw = 0,
     fh = 0;
   try {
     const { ALL_FORMATS, BlobSource, CanvasSink, Input } = await import('mediabunny');
     const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
-    const tags = await input.getMetadataTags().catch(() => ({}) as { date?: Date });
-    if (!created && tags.date instanceof Date && !isNaN(tags.date.getTime()) && tags.date.getFullYear() > 1971) {
-      item.date = tags.date.getTime();
-      item.dateSource = 'video';
-    }
-    item.duration = await input.computeDuration();
     const vt = await input.getPrimaryVideoTrack();
     const at = await input.getPrimaryAudioTrack();
+    const first = vt ? await vt.getFirstTimestamp().catch(() => 0) : 0;
+    item.duration = Math.max(0, (await input.computeDuration()) - first);
     item.hasAudio = !!at;
-    if (vt) {
+    if (at) await ensureDecoder(at.codec);
+    if (vt && !item.decode) {
       item.width = vt.displayWidth;
       item.height = vt.displayHeight;
       if (await vt.canDecode()) {
         const sink = new CanvasSink(vt, { width: 480 });
-        const wc = await sink.getCanvas(Math.min(item.duration * 0.15, 2));
+        const wc = await sink.getCanvas(first + Math.min(item.duration * 0.15, 2)).catch(() => null);
         if (wc) {
           frame = wc.canvas as HTMLCanvasElement;
           fw = wc.canvas.width;
@@ -308,6 +299,25 @@ async function analyzeVideo(file: File, item: MediaItem) {
     /* repli ci-dessous */
   }
   if (!frame) {
+    // lecture directe par le décodeur du navigateur (MTS entrelacés, conteneurs mal décrits…)
+    try {
+      const reader = await FrameReader.open(file, 480);
+      const f = await reader.getCanvas(Math.min(reader.duration * 0.15, 2));
+      if (f) {
+        frame = f.canvas;
+        fw = f.canvas.width;
+        fh = f.canvas.height;
+        item.width = reader.width;
+        item.height = reader.height;
+        if (reader.duration) item.duration = reader.duration;
+      }
+      reader.dispose();
+    } catch {
+      /* repli suivant */
+    }
+  }
+  if (!frame) {
+    if (item.decode) throw new Error('Format vidéo non décodable par ce navigateur');
     const { c, dur } = await videoFrameViaElement(file, 0.15);
     frame = c;
     fw = c.width;
@@ -357,20 +367,17 @@ export async function analyzeFile(file: File, path: string): Promise<MediaItem |
   const item = blankItem(kind, file.name, path, file.size);
   item.file = file;
   item.date = file.lastModified || Date.now();
-  const fromName = dateFromName(file.name);
-  if (fromName) {
-    item.date = fromName.t;
-    item.dateSource = 'filename';
-  }
   try {
-    const [hash] = await Promise.all([
+    const [hash, exif] = await Promise.all([
       exactHash(file),
-      kind === 'photo' ? analyzePhoto(file, item) : analyzeVideo(file, item),
+      kind === 'photo' ? analyzePhoto(file, item) : analyzeVideo(file, item).then(() => undefined),
     ]);
     item.hash = hash;
+    applyBest(item, await collectDates(file, kind, exif));
   } catch (e) {
     item.error = (e as Error).message || 'Fichier illisible';
     item.excluded = true;
+    applyBest(item, await collectDates(file, kind).catch(() => []));
   }
   return item;
 }
@@ -389,7 +396,7 @@ export function markDuplicates(items: MediaItem[], opts: ImportOptions) {
     arr.push(it);
     byHash.set(it.hash, arr);
   }
-  const rank = (m: MediaItem) => ({ exif: 0, video: 0, manual: 0, sidecar: 0, filename: 1, sequence: 2, folder: 2, demo: 1, file: 3 })[m.dateSource];
+  const rank = (m: MediaItem) => ({ exif: 0, video: 0, manual: 0, sidecar: 0, filename: 1, metamod: 2, sequence: 2, folder: 2, demo: 1, file: 3 })[m.dateSource];
   for (const group of byHash.values()) {
     if (group.length < 2) continue;
     group.sort((a, b) => rank(a) - rank(b) || a.date - b.date || a.name.length - b.name.length);

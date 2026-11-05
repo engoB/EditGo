@@ -28,7 +28,7 @@ export async function scanHandle(root: FileSystemDirectoryHandle, onProgress?: (
         if (!SKIP_DIR.test(name)) await walk(handle as FileSystemDirectoryHandle, prefix + name + '/');
         continue;
       }
-      if (!/\.(jpe?g|png|webp|gif|bmp|avif|heic|heif|tiff?|mp4|m4v|mov|webm|mkv|3gp|avi|ogv|json)$/i.test(name)) continue;
+      if (!/\.(jpe?g|png|webp|gif|bmp|avif|heic|heif|tiff?|mp4|m4v|mov|webm|mkv|3gp|avi|ogv|mts|m2ts|mod|tod|vob|mpg|mpeg|json)$/i.test(name)) continue;
       try {
         const f = await (handle as FileSystemFileHandle).getFile();
         if (wanted(f)) {

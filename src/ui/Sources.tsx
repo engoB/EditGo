@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import { importing, media, sources } from '../state/store';
-import { removeSource, rescanAll, rescanSource } from '../state/actions';
+import { removeSource, rereadDates, rescanAll, rescanSource } from '../state/actions';
 import { grantPendingAccess, handlesUnsafe, pendingAccess } from '../state/persist';
 import { canPickFolders } from '../media/sources';
 import { Icon } from './icons';
@@ -70,6 +70,11 @@ export function SourcesPanel({ onAddFolder, onAddFiles }: { onAddFolder: () => v
             <small>{loose} médias hors dossier</small>
           </div>
         </div>
+      )}
+      {media.value.some((m) => m.file && !m.demo) && (
+        <button class="btn btn-quiet btn-sm" disabled={busy} onClick={() => void rereadDates(false)} title="Relit toutes les dates inscrites dans les fichiers (sauf dates corrigées à la main)">
+          <Icon name="calendar" size={14} /> Relire les dates des fichiers
+        </button>
       )}
       <div class="side-actions">
         <button class="btn btn-ghost" disabled={busy} onClick={onAddFolder}>

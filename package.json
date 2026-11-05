@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@mediabunny/ac3": "^1.65.2",
     "@preact/signals": "^2.11.4",
     "mediabunny": "^1.65.2",
     "preact": "^11.1.1"

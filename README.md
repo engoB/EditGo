@@ -11,6 +11,7 @@ Version autonome en un seul fichier : **https://engob.github.io/EditGo/editgo-ho
 - Autant de dossiers que voulu (téléphone, PC, dossier Google Drive synchronisé, export Google Photos / Takeout), ajoutés un par un ou glissés-déposés ensemble ; sous-dossiers parcourus, dossiers système et miniatures ignorés.
 - Accès mémorisé (Chrome, Edge) : à la réouverture d'un projet, les dossiers sont relus automatiquement et les nouvelles photos ajoutées ; les fichiers déplacés ou supprimés sont signalés. Ces fichiers ne sont pas recopiés, ce qui économise l'espace. Autres navigateurs : les fichiers sont copiés dans le projet.
 - Datation, de la plus fiable à la moins fiable : EXIF / métadonnées vidéo (fuseau Apple compris), fichier JSON Google Takeout (`photoTakenTime`), date et heure dans le nom (`IMG_20240512_…`, `PXL_…`, WhatsApp, captures, horodatages Telegram/Signal), numérotation de l'appareil (`IMG_4203` placée entre `IMG_4201` et `IMG_4207` déjà datées), nom du dossier (« 2023-07 Vacances », « Mai 2021 », « 2022/05 »), date du fichier. La source de chaque date est indiquée et corrigeable.
+- Toutes les dates inscrites dans chaque fichier sont lues et listées dans la visionneuse : EXIF (prise de vue, numérisation, modification), XMP (Lightroom, Photoshop), en-tête vidéo, Apple QuickTime, ©day, AVCHD. La date de modification (retouche, export) n'est retenue qu'en dernier recours. « Utiliser » / « Tout le dossier » pour choisir une autre date, « Décaler tout le dossier » pour corriger un appareil dont l'horloge était mal réglée, « Relire les dates des fichiers » pour un projet existant.
 - Captures d'écran, enregistrements d'écran, miniatures, images trop petites et GIF écartés automatiquement (réglable, « Inclure » pour les garder).
 - Les noms de dossiers d'événements (« Vacances Bretagne ») servent de titres de chapitres et de titre du film.
 - Doublons stricts ignorés (empreinte SHA-256 du contenu).
@@ -20,6 +21,13 @@ Version autonome en un seul fichier : **https://engob.github.io/EditGo/editgo-ho
 **Projets**
 - Enregistrement automatique sur l'appareil (IndexedDB + copie locale des médias, dédupliquée) : on rouvre un projet sans rien réimporter.
 - Panneau « Projets » : reprendre, renommer, supprimer ; exporter / importer un projet en `.editgo.json` (les médias absents se réassocient en réimportant le dossier).
+
+**Vidéos de caméscope (MTS / M2TS AVCHD, MOD, TOD, AVI, MPG)**
+- Lues image par image par le décodeur du navigateur (WebCodecs), y compris en 1080i entrelacé ; date d'enregistrement du caméscope lue dans le flux ; son Dolby AC-3 décodé par l'extension `@mediabunny/ac3` (chargée uniquement si nécessaire). Aperçu, visionneuse et export.
+
+**Médiathèque**
+- Taille des vignettes réglable, affichage des images entières (sans recadrage).
+- Visionneuse plein écran : photo en grand (clic = taille réelle), lecture des vidéos, navigation ← →, informations, dates trouvées, actions.
 
 **Montage automatique**
 - Deux constructions : **Tous les médias** (par défaut — chaque photo et chaque vidéo en entier, durée naturelle affichée avant création) ou **Meilleurs moments** (sélection pour 30 s à 5 min).

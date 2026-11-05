@@ -3,6 +3,7 @@ import type { MediaItem, MediaSource, Project, ThemeId } from '../types';
 import { uid } from '../util';
 import { analyzeFile, markDuplicates, mediaKindOf } from '../media/analyze';
 import { junkReason, readSidecar, refineDates, sidecarKey } from '../media/dates';
+import { applyBest, collectDates, sourceOfKey } from '../media/redate';
 import { ensurePermission, groupByRoot, newSource, pickFolderHandle, scanHandle, type ScanEntry } from '../media/sources';
 import { makeDemo } from '../media/demo';
 import { buildStory, usable } from '../story/auto';
@@ -606,4 +607,71 @@ export function shiftInCollage(clipId: string, mediaId: string, dir: -1 | 1) {
 export function regroupCollages(mode: 'off' | 'auto' | 'more') {
   const p = { ...project.value, collage: mode };
   commit({ ...p, ...buildStory(media.value, p, importOpts.value.chapterGapHours), title: p.title, subtitle: p.subtitle });
+}
+
+// ---------- Dates : relecture, choix d'une source, décalage d'un dossier ----------
+const dirOf = (m: MediaItem) => (m.sourceId ?? '') + '|' + m.path.split('/').slice(0, -1).join('/');
+
+/** Médias du même dossier (même source, même sous-dossier). */
+export function sameFolder(m: MediaItem): MediaItem[] {
+  const d = dirOf(m);
+  return media.value.filter((x) => dirOf(x) === d);
+}
+
+function afterDateChange(msg?: string) {
+  refineDates(media.value);
+  media.value = [...media.value].sort((a, b) => a.date - b.date);
+  if (msg) toast(msg, 'ok', 5000);
+}
+
+/** Relit les dates dans les fichiers (projets créés avant l'amélioration, ou à la demande). */
+export async function rereadDates(onlyMissing: boolean) {
+  const list = media.value.filter((m) => m.file && !m.demo && (!onlyMissing || !m.dates));
+  if (!list.length) return;
+  importing.value = { done: 0, total: list.length, label: 'Relecture des dates…' };
+  let changed = 0;
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i];
+    try {
+      if (applyBest(m, await collectDates(m.file!, m.kind))) changed++;
+    } catch {
+      /* fichier illisible */
+    }
+    if (i % 20 === 0) importing.value = { done: i, total: list.length, label: 'Relecture des dates…' };
+  }
+  importing.value = null;
+  afterDateChange(changed ? `Dates relues dans les fichiers : ${changed} média(s) redaté(s).` : onlyMissing ? undefined : 'Dates relues : aucune modification.');
+}
+
+/** Utilise une date trouvée dans le fichier ; avec `folder`, le même type de date pour tout le dossier. */
+export function useDateCandidate(id: string, key: string, folder: boolean) {
+  const m = mediaMap.value.get(id);
+  if (!m) return;
+  const targets = folder ? sameFolder(m) : [m];
+  let n = 0;
+  for (const x of targets) {
+    const c = x.dates?.find((d) => d.key === key);
+    if (!c) continue;
+    x.date = c.t;
+    // choix explicite : une date fiable garde son origine, une date faible devient « corrigée » (plus d'écrasement automatique)
+    const src = sourceOfKey(key, x.kind);
+    x.dateSource = src === 'exif' || src === 'video' ? src : 'manual';
+    n++;
+  }
+  afterDateChange(folder ? `${n} média(s) du dossier redaté(s) avec « ${m.dates?.find((d) => d.key === key)?.label} ».` : undefined);
+}
+
+/** Décale toutes les dates d'un dossier pour que `id` soit à `correct` (horloge d'appareil mal réglée). */
+export function shiftFolderDates(id: string, correct: number) {
+  const m = mediaMap.value.get(id);
+  if (!m || !isFinite(correct)) return;
+  const delta = correct - m.date;
+  const list = sameFolder(m);
+  for (const x of list) {
+    x.date += delta;
+    x.dateSource = 'manual';
+  }
+  const days = Math.round(Math.abs(delta) / 86_400_000);
+  const hours = Math.round((Math.abs(delta) % 86_400_000) / 3_600_000);
+  afterDateChange(`${list.length} média(s) décalé(s) de ${delta < 0 ? '−' : '+'}${days ? days + ' j ' : ''}${hours} h.`);
 }

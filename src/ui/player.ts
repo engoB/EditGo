@@ -8,10 +8,13 @@ import type { MediaItem } from '../types';
 import { mediaMap, musicBuffer, playhead, playing, project, timeline } from '../state/store';
 import { applyMusicEnvelope, duckingSegments } from '../audio/envelope';
 import { ASPECTS } from '../presets';
+import { DecodedVideo } from './decoded';
+import { extractAudio } from '../audio/mix';
 
 class PreviewSources implements SourceProvider {
   images = new ImageCache(1920, 24);
   videos = new Map<string, HTMLVideoElement>();
+  decoded = new Map<string, DecodedVideo>();
   onReady: () => void = () => {};
   active = new Set<string>();
 
@@ -28,9 +31,17 @@ class PreviewSources implements SourceProvider {
       const th0 = thumbImage(m);
       return th0 ? { key: 't:' + m.id, image: th0, w: th0.naturalWidth, h: th0.naturalHeight, dynamic: false } : null;
     }
+    const target = sourceTime(p, t);
+    if (m.decode) {
+      const dv = this.decodedFor(p, m);
+      if (playing.value) dv.update(target);
+      else dv.seek(target);
+      if (dv.shown >= 0) return { key: 'dv:' + p.clip.id, image: dv.canvas, w: dv.canvas.width, h: dv.canvas.height, dynamic: true };
+      const thd = thumbImage(m);
+      return thd ? { key: 't:' + m.id, image: thd, w: thd.naturalWidth, h: thd.naturalHeight, dynamic: false } : null;
+    }
     const v = this.video(p, m);
     this.active.add(p.clip.id);
-    const target = sourceTime(p, t);
     if (!playing.value) {
       if (Math.abs(v.currentTime - target) > 0.04 && !v.seeking) v.currentTime = target;
     }
@@ -47,6 +58,15 @@ class PreviewSources implements SourceProvider {
     return th ? { key: 't:' + m.id, image: th, w: th.naturalWidth, h: th.naturalHeight, dynamic: false } : null;
   }
 
+  decodedFor(p: Placed, m: MediaItem): DecodedVideo {
+    let dv = this.decoded.get(p.clip.id);
+    if (!dv) {
+      dv = new DecodedVideo(m.file!, () => this.onReady());
+      this.decoded.set(p.clip.id, dv);
+    }
+    return dv;
+  }
+
   video(p: Placed, m: MediaItem): HTMLVideoElement {
     let v = this.videos.get(p.clip.id);
     if (!v) {
@@ -58,6 +78,11 @@ class PreviewSources implements SourceProvider {
       v.src = URL.createObjectURL(m.file!);
       v.addEventListener('seeked', () => this.onReady());
       v.addEventListener('loadeddata', () => this.onReady());
+      // format refusé par le navigateur : bascule sur le décodage image par image
+      v.addEventListener('error', () => {
+        m.decode = true;
+        this.onReady();
+      });
       this.videos.set(p.clip.id, v);
     }
     return v;
@@ -72,7 +97,8 @@ class PreviewSources implements SourceProvider {
         const x = media.get(id);
         if (x && !this.images.has(x.id)) void this.images.load(x).then(() => this.onReady());
       }
-      if (m?.kind === 'video' && m.file && p.clip.type === 'media' && p.start > t) {
+      if (m?.kind === 'video' && m.file && m.decode && p.clip.type === 'media' && p.start > t && !playing.value) this.decodedFor(p, m).seek(p.clip.trimIn);
+      else if (m?.kind === 'video' && m.file && p.clip.type === 'media' && p.start > t) {
         const v = this.video(p, m);
         if (!playing.value && Math.abs(v.currentTime - p.clip.trimIn) > 0.05 && !v.seeking) v.currentTime = p.clip.trimIn;
       }
@@ -81,6 +107,12 @@ class PreviewSources implements SourceProvider {
 
   gc(placed: Placed[]) {
     const keep = new Set(placed.map((p) => p.clip.id));
+    for (const [id, dv] of this.decoded) {
+      if (!keep.has(id)) {
+        dv.dispose();
+        this.decoded.delete(id);
+      }
+    }
     for (const [id, v] of this.videos) {
       if (!keep.has(id)) {
         v.pause();
@@ -160,8 +192,46 @@ export class Player {
     this.syncVideos(this.tStart, true);
   }
 
+  /** Son des vidéos décodées (MTS…) : extrait puis joué via Web Audio. */
+  private decAudio = new Map<string, { buf: AudioBuffer | null; key: string }>();
+  private decNodes = new Map<string, { node: AudioBufferSourceNode; gain: GainNode }>();
+
+  private ensureAudio(): AudioContext {
+    this.audio ??= new AudioContext({ latencyHint: 'playback' });
+    void this.audio.resume();
+    return this.audio;
+  }
+
+  private loadDecAudio(p: Placed, m: MediaItem) {
+    const c = p.clip;
+    const key = `${c.trimIn}|${c.duration}|${c.speed}`;
+    const cur = this.decAudio.get(c.id);
+    if (cur && cur.key === key) return cur.buf;
+    this.decAudio.set(c.id, { buf: null, key });
+    void extractAudio(m.file!, c.trimIn, Math.min(m.duration, c.trimIn + c.duration * c.speed + 0.1)).then((buf) => {
+      const e = this.decAudio.get(c.id);
+      if (e && e.key === key) e.buf = buf;
+    });
+    return null;
+  }
+
+  private stopDecAudio(id?: string) {
+    for (const [k, n] of this.decNodes) {
+      if (id && k !== id) continue;
+      try {
+        n.node.stop();
+      } catch {
+        /* déjà arrêté */
+      }
+      n.node.disconnect();
+      this.decNodes.delete(k);
+    }
+  }
+
   private stop() {
     this.stopMusic();
+    this.stopDecAudio();
+    for (const dv of this.src.decoded.values()) dv.stop();
     for (const v of this.src.videos.values()) {
       v.pause();
       v.muted = true;
@@ -223,6 +293,30 @@ export class Player {
       const m = p.clip.mediaId ? media.get(p.clip.mediaId) : undefined;
       if (m?.kind !== 'video' || !m.file) continue;
       activeIds.add(p.clip.id);
+      if (m.decode) {
+        if (!m.hasAudio || p.clip.volume <= 0.01) continue;
+        const buf = this.loadDecAudio(p, m);
+        if (buf && !this.decNodes.has(p.clip.id)) {
+          const ctx = this.ensureAudio();
+          const node = ctx.createBufferSource();
+          node.buffer = buf;
+          node.playbackRate.value = p.clip.speed;
+          const gain = ctx.createGain();
+          const now = ctx.currentTime;
+          const local = t - p.start;
+          const fadeEnd = Math.max(0, p.tIn - local);
+          gain.gain.setValueAtTime(fadeEnd > 0 ? 0 : p.clip.volume, now);
+          if (fadeEnd > 0) gain.gain.linearRampToValueAtTime(p.clip.volume, now + fadeEnd);
+          const remain = p.end - t;
+          gain.gain.setValueAtTime(p.clip.volume, now + Math.max(0, remain - 0.4));
+          gain.gain.linearRampToValueAtTime(0, now + Math.max(0.01, remain));
+          node.connect(gain).connect(ctx.destination);
+          node.start(now, Math.max(0, local * p.clip.speed));
+          node.stop(now + Math.max(0.01, remain));
+          this.decNodes.set(p.clip.id, { node, gain });
+        }
+        continue;
+      }
       const v = this.src.video(p, m);
       const target = sourceTime(p, t);
       v.playbackRate = p.clip.speed;
@@ -234,6 +328,13 @@ export class Player {
       if (v.paused) void v.play().catch(() => null);
     }
     for (const [id, v] of this.src.videos) if (!activeIds.has(id) && !v.paused) v.pause();
+    for (const id of [...this.decNodes.keys()]) if (!activeIds.has(id)) this.stopDecAudio(id);
+    // préchargement du son des prochains plans décodés
+    for (const p of placed) {
+      if (p.start < t || p.start > t + 6 || p.clip.type !== 'media') continue;
+      const m = p.clip.mediaId ? media.get(p.clip.mediaId) : undefined;
+      if (m?.kind === 'video' && m.decode && m.file && m.hasAudio && p.clip.volume > 0.01) this.loadDecAudio(p, m);
+    }
   }
 
   private lastSync = 0;
@@ -279,6 +380,7 @@ export class Player {
   dispose() {
     cancelAnimationFrame(this.raf);
     this.stopMusic();
+    this.stopDecAudio();
     void this.audio?.close();
     this.disposers.forEach((d) => d());
     this.src.gc([]);

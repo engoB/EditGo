@@ -332,7 +332,8 @@ export async function openProject(id: string) {
   pendingAccess.value = pending;
   const actions = await import('./actions');
   void actions.prepareMusic(true);
-  if (srcs.some((x) => x.handle) && !pending.length) void actions.rescanAll(false);
+  if (srcs.some((x) => x.handle) && !pending.length) void actions.rescanAll(false).then(() => actions.rereadDates(true));
+  else void actions.rereadDates(true);
   return items.filter((m) => m.missing && !(m.sourceId && pending.some((x) => x.id === m.sourceId))).length;
 }
 

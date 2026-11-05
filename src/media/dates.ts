@@ -126,7 +126,7 @@ export async function readSidecar(file: File): Promise<number | null> {
 }
 
 const STRONG = new Set(['exif', 'video', 'sidecar', 'manual', 'demo']);
-const isWeak = (m: MediaItem) => m.dateSource === 'file' || m.dateSource === 'folder' || m.dateSource === 'sequence';
+const isWeak = (m: MediaItem) => m.dateSource === 'file' || m.dateSource === 'folder' || m.dateSource === 'sequence' || m.dateSource === 'metamod';
 
 function seqKey(m: MediaItem): { key: string; n: number } | null {
   const dir = m.path.split('/').slice(0, -1).join('/');
@@ -174,7 +174,7 @@ export function refineDates(items: MediaItem[]) {
     }
   }
   for (const m of items) {
-    if (m.dateSource !== 'file') continue;
+    if (m.dateSource !== 'file' && m.dateSource !== 'metamod') continue;
     const f = dateFromFolders(m.path);
     if (f && (m.date < f.start || m.date >= f.end)) {
       m.date = f.t;
@@ -206,7 +206,7 @@ const GENERIC = new RegExp(
       'whatsapp.*', 'telegram.*', 'signal.*', 'messenger', 'instagram', 'snapchat', 'screenshots?', 'captures?.*', 'google photos', 'takeout', 'drive', 'mon drive',
       'my drive', 'google drive', 'onedrive', 'dropbox', 'icloud.*', 'desktop', 'bureau', 'documents?', 'videos?', 'vidéos?', 'movies?', 'media', 'médias?',
       'new folder', 'nouveau dossier', 'dossier sans titre', 'untitled folder', 'export.*', 'backup.*', 'sauvegarde.*', 'photos from \\d{4}', 'raw', 'jpe?g',
-      'sent', 'private', 'recovered', 'archive.*', 'divers', 'misc', 'tmp', 'temp', 'users?', 'home', 'utilisateurs',
+      'sent', 'private', 'recovered', 'stream', 'bdmv', 'avchd', 'clipinf', 'playlist', 'mp_root', 'prg\\d+', 'clip', 'mp4', 'mov', 'dcim\\d*', 'sd ?card', 'carte sd', 'archive.*', 'divers', 'misc', 'tmp', 'temp', 'users?', 'home', 'utilisateurs',
     ].join('|') +
     ')$',
   'i',
@@ -235,6 +235,7 @@ export const DATE_SOURCE_LABEL: Record<string, string> = {
   video: 'lue dans la vidéo',
   sidecar: 'lue dans le fichier Google Takeout',
   filename: 'déduite du nom du fichier',
+  metamod: 'date de modification inscrite dans le fichier (retouche ou export : peu fiable)',
   sequence: 'déduite de la numérotation de l’appareil',
   folder: 'déduite du nom du dossier',
   file: 'date de modification du fichier (peu fiable)',

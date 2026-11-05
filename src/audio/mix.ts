@@ -1,5 +1,6 @@
 // Mixage audio final (export) : musique + son des vidéos, fondus et ducking.
 import { ALL_FORMATS, AudioBufferSink, BlobSource, Input } from 'mediabunny';
+import { ensureDecoder } from '../media/codecs';
 import type { MediaItem, Project } from '../types';
 import type { Placed } from '../story/timeline';
 import { applyMusicEnvelope, duckingSegments } from './envelope';
@@ -9,7 +10,13 @@ export async function extractAudio(file: File, start: number, end: number): Prom
   try {
     const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
     const track = await input.getPrimaryAudioTrack();
+    if (track) await ensureDecoder(track.codec);
     if (!track || !(await track.canDecode())) throw new Error('no-decode');
+    // temps relatifs au début de la vidéo (les flux MTS ne commencent pas à 0)
+    const vt = await input.getPrimaryVideoTrack();
+    const base = await (vt ?? track).getFirstTimestamp().catch(() => 0);
+    start += base;
+    end += base;
     const sr = track.sampleRate;
     const ch = Math.min(2, track.numberOfChannels);
     const out = new AudioBuffer({ length: Math.max(1, Math.ceil((end - start) * sr)), numberOfChannels: ch, sampleRate: sr });

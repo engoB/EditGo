@@ -14,6 +14,7 @@ import {
   QUALITY_VERY_HIGH,
   WebMOutputFormat,
   getFirstEncodableAudioCodec,
+  canEncodeAudio,
   getFirstEncodableVideoCodec,
   type VideoCodec,
   type AudioCodec,
@@ -25,6 +26,7 @@ import { buildFrame, type SourceProvider } from '../render/frame';
 import { ImageCache } from '../render/images';
 import { layout, stateAt, type Placed } from '../story/timeline';
 import { mixAudio } from '../audio/mix';
+import { FrameReader } from '../media/framereader';
 
 export type Container = 'mp4' | 'webm';
 export type QualityLevel = 'standard' | 'high' | 'max';
@@ -71,6 +73,7 @@ class ExportSources implements SourceProvider {
   private videoFallback = new Map<string, HTMLVideoElement>();
   private current = new Map<string, SourceFrame | null>();
   private inputs: Input[] = [];
+  private readers: FrameReader[] = [];
 
   constructor(
     private media: Map<string, MediaItem>,
@@ -99,13 +102,22 @@ class ExportSources implements SourceProvider {
   private async videoIter(p: Placed, m: MediaItem, maxSide: number) {
     let it = this.videoIters.get(p.clip.id);
     if (it) return it;
+    if (m.decode) {
+      // lecture directe par le décodeur (MTS AVCHD, entrelacé…)
+      const reader = await FrameReader.open(m.file!, maxSide);
+      this.readers.push(reader);
+      it = reader.atTimestamps(this.timestampsFor(p)) as unknown as AsyncGenerator<WrappedCanvas | null, void, unknown>;
+      this.videoIters.set(p.clip.id, it);
+      return it;
+    }
     const input = new Input({ source: new BlobSource(m.file!), formats: ALL_FORMATS });
     this.inputs.push(input);
     const track = await input.getPrimaryVideoTrack();
     if (!track || !(await track.canDecode())) throw new Error('no-decode');
     const s = Math.min(1, maxSide / Math.max(track.displayWidth, track.displayHeight));
     const sink = new CanvasSink(track, { width: Math.round(track.displayWidth * s), height: Math.round(track.displayHeight * s), poolSize: 3 });
-    it = sink.canvasesAtTimestamps(this.timestampsFor(p));
+    const first = await track.getFirstTimestamp().catch(() => 0);
+    it = sink.canvasesAtTimestamps(this.timestampsFor(p).map((t) => t + first));
     this.videoIters.set(p.clip.id, it);
     return it;
   }
@@ -192,6 +204,7 @@ class ExportSources implements SourceProvider {
     for (const it of this.videoIters.values()) void it.return?.();
     for (const v of this.videoFallback.values()) URL.revokeObjectURL(v.src);
     for (const i of this.inputs) i.dispose?.();
+    for (const r of this.readers) r.dispose();
   }
 }
 
@@ -212,8 +225,23 @@ export async function runExport(opts: {
   const quality = job.quality === 'max' ? QUALITY_VERY_HIGH : job.quality === 'high' ? QUALITY_HIGH : QUALITY_MEDIUM;
   const vcodec = await getFirstEncodableVideoCodec(VIDEO_PREFS[job.container], { width: W, height: H, quality, frameRate: job.fps });
   if (!vcodec) throw new Error(`Aucun encodeur vidéo ${job.container.toUpperCase()} disponible pour ${W}×${H} sur ce navigateur.`);
+  // son : on vérifie aussi le débit (l'encodeur AAC de Windows plafonne à 192 kbit/s)
   let acodec: AudioCodec | null = null;
-  if (job.audio) acodec = await getFirstEncodableAudioCodec(AUDIO_PREFS[job.container], { numberOfChannels: 2, sampleRate: 48000 });
+  let abitrate = 0;
+  if (job.audio) {
+    const rates = job.quality === 'standard' ? [160_000, 128_000, 96_000] : [256_000, 192_000, 160_000, 128_000];
+    search: for (const c of AUDIO_PREFS[job.container]) {
+      for (const br of rates) {
+        if (await canEncodeAudio(c, { numberOfChannels: 2, sampleRate: 48000, bitrate: br }).catch(() => false)) {
+          acodec = c;
+          abitrate = br;
+          break search;
+        }
+      }
+    }
+    if (!acodec) acodec = await getFirstEncodableAudioCodec(AUDIO_PREFS[job.container], { numberOfChannels: 2, sampleRate: 48000 });
+    if (!acodec) opts.onProgress(0, 'Aucun encodeur audio disponible : export sans son');
+  }
 
   const canvas = document.createElement('canvas');
   const comp = new Compositor(canvas, { preserve: true });
@@ -233,7 +261,7 @@ export async function runExport(opts: {
   output.addVideoTrack(videoSource, { frameRate: job.fps });
   let audioSource: AudioBufferSource | null = null;
   if (acodec) {
-    audioSource = new AudioBufferSource({ codec: acodec, bitrate: job.quality === 'standard' ? 160_000 : 256_000 });
+    audioSource = new AudioBufferSource(abitrate ? { codec: acodec, bitrate: abitrate } : { codec: acodec, bitrate: QUALITY_HIGH });
     output.addAudioTrack(audioSource);
   }
   output.setMetadataTags({ title: project.title, date: new Date(), comment: 'Créé avec EditGo' });
@@ -279,7 +307,7 @@ export async function runExport(opts: {
   return {
     blob: new Blob([buf], { type: mime }),
     fileName: `${safe || 'souvenir'}-${W}x${H}-${job.fps}fps.${job.container}`,
-    codec: CODEC_LABEL[vcodec] + (acodec ? ' + ' + CODEC_LABEL[acodec] : ''),
+    codec: CODEC_LABEL[vcodec] + (acodec ? ` + ${CODEC_LABEL[acodec]}${abitrate ? ' ' + abitrate / 1000 + ' kbit/s' : ''}` : job.audio ? ' (sans son : aucun encodeur audio)' : ''),
     seconds: (performance.now() - t0) / 1000,
   };
 }

@@ -6,6 +6,7 @@ export type DateSource =
   | 'video' // métadonnées de la vidéo
   | 'sidecar' // fichier JSON de Google Takeout
   | 'filename' // date et heure dans le nom du fichier
+  | 'metamod' // date de modification inscrite dans le fichier (retouche, export : peu fiable)
   | 'sequence' // déduite de la numérotation de l'appareil (entre deux photos datées)
   | 'folder' // déduite du nom du dossier
   | 'file' // date de modification du fichier (peu fiable)
@@ -27,10 +28,14 @@ export interface MediaItem {
   demoSpec?: DemoSpec;
   /** Fichier absent après réouverture d'un projet (à réimporter). */
   missing?: boolean;
+  /** Toutes les dates trouvées dans le fichier (de la plus fiable à la moins fiable). */
+  dates?: { key: string; label: string; t: number; rank: number }[];
   /** Dossier source dont provient le média. */
   sourceId?: string;
   /** Écarté automatiquement (capture d'écran, miniature…) : raison affichée. */
   skipReason?: string;
+  /** Vidéo non lisible par le navigateur (MTS, AVI…) : décodée image par image. */
+  decode?: boolean;
   /** Appareil (EXIF) : aide à repérer les captures et les images reçues. */
   camera?: string;
   name: string;

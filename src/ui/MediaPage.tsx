@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'preact/hooks';
 import { importOpts, importing, media, project, updateProject } from '../state/store';
 import { addDroppedHandles, addFolderSource, addPickedFolders, autoCreate, forceInclude, importFiles, loadDemo, recomputeDuplicates, toggleExcluded, applyTheme, setMediaDate } from '../state/actions';
 import { SourcesPanel } from './Sources';
+import { MediaViewer } from './MediaViewer';
 import { newProject } from '../state/persist';
 import { RecentProjects } from './Projects';
 import { buildStory, usable } from '../story/auto';
@@ -47,13 +48,18 @@ function useImporters() {
         }}
       />
       <input
-        ref={dirRef}
+        ref={(el) => {
+          dirRef.current = el;
+          // attribut posé directement : Preact traiterait webkitdirectory="" comme « faux »
+          if (el && !el.hasAttribute('webkitdirectory')) {
+            el.setAttribute('webkitdirectory', '');
+            el.setAttribute('directory', '');
+          }
+        }}
         type="file"
         multiple
         hidden
-        // @ts-expect-error attributs non standard
-        webkitdirectory=""
-        directory=""
+        data-folder=""
         onChange={(e) => {
           onFolder((e.target as HTMLInputElement).files);
           (e.target as HTMLInputElement).value = '';
@@ -150,12 +156,12 @@ function Welcome() {
   );
 }
 
-function Tile({ m, master, onDate }: { m: MediaItem; master?: MediaItem; onDate: () => void }) {
+function Tile({ m, master, onDate, onOpen }: { m: MediaItem; master?: MediaItem; onDate: () => void; onOpen: () => void }) {
   const dup = !!m.duplicateOf;
   const sim = !!m.similarTo;
   const off = dup || sim || m.excluded || !!m.error || !!m.missing;
   return (
-    <div class={'tile' + (off ? ' off' : '')} title={`${m.path}\n${new Date(m.date).toLocaleString('fr-FR')}`}>
+    <div class={'tile' + (off ? ' off' : '')} title={`${m.path}\n${new Date(m.date).toLocaleString('fr-FR')}`} onClick={onOpen}>
       {m.thumb ? <img src={m.thumb} loading="lazy" alt="" draggable={false} /> : <div class="tile-ph" />}
       <div class="tile-badges">
         {m.kind === 'video' && (
@@ -176,19 +182,37 @@ function Tile({ m, master, onDate }: { m: MediaItem; master?: MediaItem; onDate:
         )}
       </div>
       <div class="tile-foot">
-        <button class="tile-date" onClick={onDate} title="Corriger la date et l’heure (change sa place dans la chronologie)">
+        <button
+          class="tile-date"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDate();
+          }} title="Corriger la date et l’heure (change sa place dans la chronologie)">
           <Icon name="calendar" size={11} /> {formatTime(m.date)}
         </button>
         <span class="score" style={{ '--s': m.score }} title={`Qualité estimée ${(m.score * 100).toFixed(0)} %`} />
       </div>
       <div class="tile-actions">
         {dup || sim ? (
-          <button class="chip" onClick={() => forceInclude(m.id)} title={master ? `Identique à ${master.name}` : ''}>
+          <button
+            class="chip"
+            onClick={(e) => {
+              e.stopPropagation();
+              forceInclude(m.id);
+            }}
+            title={master ? `Identique à ${master.name}` : ''}
+          >
             <Icon name="plus" size={12} /> Garder aussi
           </button>
         ) : (
           !m.error && (
-            <button class="chip" onClick={() => toggleExcluded(m.id)}>
+            <button
+              class="chip"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleExcluded(m.id);
+              }}
+            >
               <Icon name={m.excluded ? 'eye' : 'eyeOff'} size={12} /> {m.excluded ? 'Inclure' : 'Exclure'}
             </button>
           )
@@ -223,6 +247,23 @@ export function MediaPage() {
   const items = media.value;
   const [filter, setFilter] = useState<Filter>('all');
   const [dateEdit, setDateEdit] = useState<MediaItem | null>(null);
+  const [viewerId, setViewerId] = useState<string | null>(null);
+  const [tile, setTile] = useState(() => {
+    try {
+      return Number(localStorage.getItem('editgo-tile')) || 150;
+    } catch {
+      return 150;
+    }
+  });
+  const [whole, setWhole] = useState(false);
+  const setTileSize = (v: number) => {
+    setTile(v);
+    try {
+      localStorage.setItem('editgo-tile', String(v));
+    } catch {
+      /* préférence non mémorisée */
+    }
+  };
   const { inputs, pickFiles, pickFolder } = useImporters();
   const drop = useDropZone();
   const opts = importOpts.value;
@@ -275,6 +316,7 @@ export function MediaPage() {
     }
   }
   if (other.length) groups.push({ label: 'Autres', items: other });
+  const flat = groups.flatMap((g) => g.items);
 
   return (
     <div class={'media-page' + (drop.over ? ' drop-over' : '')} {...drop.props}>
@@ -369,6 +411,16 @@ export function MediaPage() {
 
       <section class="media-main">
         <div class="media-toolbar">
+          <div class="mt-right">
+            <button class={'ibtn' + (whole ? ' on' : '')} title="Afficher les images entières (sans recadrage)" onClick={() => setWhole(!whole)}>
+              <Icon name="maximize" size={15} />
+            </button>
+            <label class="tl-zoom" title="Taille des vignettes">
+              <Icon name="grid" size={14} />
+              <input type="range" min={96} max={440} step={4} value={tile} style={{ '--p': `${((tile - 96) / 344) * 100}%` }} onInput={(e) => setTileSize(Number((e.target as HTMLInputElement).value))} />
+              <Icon name="zoomIn" size={15} />
+            </label>
+          </div>
           <Segmented<Filter>
             value={filter}
             onChange={setFilter}
@@ -381,7 +433,7 @@ export function MediaPage() {
             ]}
           />
         </div>
-        <div class="media-scroll">
+        <div class={'media-scroll' + (whole ? ' whole' : '')} style={{ '--tile': tile + 'px' }}>
           {groups
             .filter((g) => g.items.length)
             .map((g) => (
@@ -392,7 +444,13 @@ export function MediaPage() {
                 </h3>
                 <div class="tiles">
                   {g.items.map((m) => (
-                    <Tile key={m.id} m={m} master={byId.get(m.duplicateOf || m.similarTo || '')} onDate={() => setDateEdit(m)} />
+                    <Tile
+                      key={m.id}
+                      m={m}
+                      master={byId.get(m.duplicateOf || m.similarTo || '')}
+                      onDate={() => setDateEdit(m)}
+                      onOpen={() => setViewerId(m.id)}
+                    />
                   ))}
                 </div>
               </div>
@@ -454,6 +512,15 @@ export function MediaPage() {
           <Icon name="sparkles" /> {project.value.clips.length ? 'Recréer le film' : 'Créer le film'}
         </button>
       </aside>
+      {viewerId && flat.some((x) => x.id === viewerId) && (
+        <MediaViewer
+          list={flat}
+          index={flat.findIndex((x) => x.id === viewerId)}
+          onIndex={(i) => setViewerId(flat[i]?.id ?? null)}
+          onClose={() => setViewerId(null)}
+          onDate={(m) => setDateEdit(m)}
+        />
+      )}
       {dateEdit && <DateDialog m={dateEdit} onClose={() => setDateEdit(null)} />}
       {drop.over && (
         <div class="drop-overlay">
