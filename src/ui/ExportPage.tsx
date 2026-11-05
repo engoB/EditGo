@@ -1,0 +1,267 @@
+import { useEffect, useRef, useState } from 'preact/hooks';
+import { mediaMap, musicBuffer, playhead, project, timeline, toast, musicBusy } from '../state/store';
+import { prepareMusic } from '../state/actions';
+import { EXPORT_PRESETS, dimsFor, ASPECTS } from '../presets';
+import type { Container, ExportJob, QualityLevel } from '../export/exporter';
+const loadExporter = () => import('../export/exporter');
+import { Icon } from './icons';
+import { Segmented, Toggle } from './controls';
+import { downloadBlob, saveFile, fmtBytes, fmtDuration } from '../util';
+
+interface Done {
+  name: string;
+  blob: Blob;
+  url: string;
+  codec: string;
+  seconds: number;
+  label: string;
+}
+
+const BITRATE_EST: Record<QualityLevel, number> = { standard: 0.07, high: 0.12, max: 0.2 }; // bits par pixel par image (approx.)
+
+export function ExportPage() {
+  const p = project.value;
+  const { total, placed } = timeline.value;
+  const [sel, setSel] = useState<string[]>(['proj-1080']);
+  const [container, setContainer] = useState<Container>('mp4');
+  const [fps, setFps] = useState(30);
+  const [quality, setQuality] = useState<QualityLevel>('high');
+  const [audio, setAudio] = useState(true);
+  const [codecs, setCodecs] = useState<{ mp4: string | null; webm: string | null } | null>(null);
+  const [run, setRun] = useState<{ job: number; jobs: number; label: string; frac: number; stage: string; eta: string } | null>(null);
+  const [done, setDone] = useState<Done[]>([]);
+  const abort = useRef<AbortController | null>(null);
+  const prev = useRef<HTMLCanvasElement>(null);
+  const webcodecs = typeof VideoEncoder !== 'undefined';
+
+  useEffect(() => {
+    if (webcodecs) void loadExporter().then((m) => m.probeCodecs(1920, 1080)).then(setCodecs).catch(() => setCodecs({ mp4: null, webm: null }));
+  }, []);
+  useEffect(() => () => done.forEach((d) => URL.revokeObjectURL(d.url)), []);
+
+  const jobs: ExportJob[] = sel.map((id) => {
+    const pr = EXPORT_PRESETS.find((x) => x.id === id)!;
+    const aspect = pr.aspect === 'project' ? p.aspect : pr.aspect;
+    const { w, h } = dimsFor(aspect, pr.short);
+    return { label: pr.label, width: w, height: h, fps, container, quality, audio };
+  });
+  const estBytes = jobs.reduce((s, j) => s + (j.width * j.height * j.fps * BITRATE_EST[quality] * total) / 8 + (audio ? (total * 256000) / 8 : 0), 0);
+
+  const start = async () => {
+    if (!placed.length) return toast('Le montage est vide.', 'warn');
+    if (audio && p.music.kind !== 'none' && !musicBuffer.value) await prepareMusic();
+    const ac = new AbortController();
+    abort.current = ac;
+    for (let i = 0; i < jobs.length; i++) {
+      const job = jobs[i];
+      const t0 = performance.now();
+      setRun({ job: i + 1, jobs: jobs.length, label: job.label, frac: 0, stage: 'Préparation', eta: '' });
+      try {
+        const { runExport } = await loadExporter();
+        const res = await runExport({
+          project: p,
+          media: mediaMap.value,
+          job,
+          music: musicBuffer.value,
+          signal: ac.signal,
+          onProgress: (frac, stage, canvas) => {
+            const el = (performance.now() - t0) / 1000;
+            const eta = frac > 0.06 ? Math.max(0, (el / frac) * (1 - frac)) : 0;
+            setRun({ job: i + 1, jobs: jobs.length, label: job.label, frac, stage, eta: eta ? `≈ ${fmtDuration(eta)} restantes` : '' });
+            if (canvas && prev.current) {
+              const c = prev.current;
+              const s = Math.min(1, 480 / canvas.width);
+              c.width = Math.round(canvas.width * s);
+              c.height = Math.round(canvas.height * s);
+              c.getContext('2d')!.drawImage(canvas, 0, 0, c.width, c.height);
+            }
+          },
+        });
+        const url = URL.createObjectURL(res.blob);
+        setDone((d) => [{ name: res.fileName, blob: res.blob, url, codec: res.codec, seconds: res.seconds, label: job.label }, ...d]);
+        saveFile(res.blob, res.fileName);
+        toast(`Export terminé : ${res.fileName}`, 'ok', 5000);
+      } catch (e) {
+        if ((e as DOMException).name === 'AbortError') toast('Export annulé', 'warn');
+        else toast('Échec de l’export : ' + ((e as Error).message || e), 'error', 8000);
+        break;
+      }
+    }
+    setRun(null);
+    abort.current = null;
+  };
+
+  const still = async () => {
+    const { w, h } = dimsFor(p.aspect, 2160);
+    try {
+      const { exportStill } = await loadExporter();
+      const b = await exportStill({ project: p, media: mediaMap.value, t: playhead.value, width: w, height: h });
+      await downloadBlob(b, `image-${w}x${h}.png`);
+    } catch (e) {
+      toast('Capture impossible : ' + (e as Error).message, 'error');
+    }
+  };
+
+  const share = async (d: Done) => {
+    const file = new File([d.blob], d.name, { type: d.blob.type });
+    const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+    if (nav.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: p.title });
+      } catch {
+        /* annulé */
+      }
+    } else saveFile(d.blob, d.name);
+  };
+
+  return (
+    <div class="export-page">
+      <section class="panel export-main">
+        <h2 class="page-title">
+          <Icon name="download" /> Exporter le film
+        </h2>
+        {!webcodecs && (
+          <div class="alert">
+            <Icon name="info" /> Ce navigateur ne propose pas l’encodage vidéo matériel (WebCodecs). Utilisez une version récente de Chrome, Edge, Safari (17+) ou Firefox (130+).
+          </div>
+        )}
+        <h4 class="side-title">Formats (sélection multiple)</h4>
+        <div class="preset-grid">
+          {EXPORT_PRESETS.map((pr) => {
+            const aspect = pr.aspect === 'project' ? p.aspect : pr.aspect;
+            const { w, h } = dimsFor(aspect, pr.short);
+            const on = sel.includes(pr.id);
+            const a = ASPECTS[aspect];
+            return (
+              <button class={'preset' + (on ? ' on' : '')} onClick={() => setSel(on ? sel.filter((x) => x !== pr.id) : [...sel, pr.id])}>
+                <span class="preset-frame">
+                  <i style={{ aspectRatio: `${a.w} / ${a.h}` }} />
+                </span>
+                <span class="preset-txt">
+                  <b>{pr.label}</b>
+                  <small>
+                    {w} × {h} · {pr.hint}
+                  </small>
+                </span>
+                <span class="preset-check">{on && <Icon name="check" size={14} />}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div class="export-opts">
+          <div>
+            <h4 class="side-title">Conteneur</h4>
+            <Segmented<Container>
+              value={container}
+              onChange={setContainer}
+              options={[
+                { value: 'mp4', label: `MP4${codecs?.mp4 ? ' · ' + codecs.mp4 : ''}` },
+                { value: 'webm', label: `WebM${codecs?.webm ? ' · ' + codecs.webm : ''}` },
+              ]}
+            />
+          </div>
+          <div>
+            <h4 class="side-title">Images / seconde</h4>
+            <Segmented<number>
+              value={fps}
+              onChange={setFps}
+              options={[24, 25, 30, 50, 60].map((v) => ({ value: v, label: String(v) }))}
+            />
+          </div>
+          <div>
+            <h4 class="side-title">Qualité</h4>
+            <Segmented<QualityLevel>
+              value={quality}
+              onChange={setQuality}
+              options={[
+                { value: 'standard', label: 'Standard' },
+                { value: 'high', label: 'Haute' },
+                { value: 'max', label: 'Maximale' },
+              ]}
+            />
+          </div>
+          <div>
+            <Toggle label="Inclure le son" hint="Musique + son des vidéos" checked={audio} onChange={setAudio} />
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel export-side">
+        <div class="summary">
+          <div>
+            <span>Durée</span>
+            <b>{fmtDuration(total)}</b>
+          </div>
+          <div>
+            <span>Plans</span>
+            <b>{placed.length}</b>
+          </div>
+          <div>
+            <span>Fichiers</span>
+            <b>{jobs.length}</b>
+          </div>
+          <div>
+            <span>Taille estimée</span>
+            <b>≈ {fmtBytes(estBytes)}</b>
+          </div>
+        </div>
+        {run ? (
+          <div class="run-card">
+            <canvas ref={prev} class="run-prev" />
+            <div class="run-head">
+              <b>
+                {run.label} ({run.job}/{run.jobs})
+              </b>
+              <span>{Math.round(run.frac * 100)} %</span>
+            </div>
+            <div class="progress-line big">
+              <i style={{ width: `${run.frac * 100}%` }} />
+            </div>
+            <small>
+              {run.stage} {run.eta && '· ' + run.eta}
+            </small>
+            <button class="btn btn-danger btn-block" onClick={() => abort.current?.abort()}>
+              <Icon name="x" size={16} /> Annuler
+            </button>
+          </div>
+        ) : (
+          <>
+            <button class="btn btn-primary btn-lg btn-block" disabled={!jobs.length || !placed.length || !webcodecs || musicBusy.value} onClick={start}>
+              <Icon name="film" /> Lancer l’export {jobs.length > 1 ? `(${jobs.length} fichiers)` : ''}
+            </button>
+            <button class="btn btn-ghost btn-block" disabled={!placed.length} onClick={still}>
+              <Icon name="camera" size={16} /> Image fixe 4K (tête de lecture)
+            </button>
+          </>
+        )}
+        <p class="side-note">
+          Le rendu est calculé image par image sur votre appareil (aucun envoi en ligne). Gardez cet onglet ouvert pendant l’export.
+        </p>
+        {done.length > 0 && (
+          <div class="done-list">
+            <h4 class="side-title">Fichiers exportés</h4>
+            {done.map((d) => (
+              <div class="done">
+                <video src={d.url} muted playsInline preload="metadata" />
+                <div class="done-txt">
+                  <b>{d.name}</b>
+                  <small>
+                    {fmtBytes(d.blob.size)} · {d.codec} · rendu en {fmtDuration(d.seconds)}
+                  </small>
+                </div>
+                <div class="done-act">
+                  <button class="ibtn" title="Télécharger" onClick={() => saveFile(d.blob, d.name)}>
+                    <Icon name="download" size={16} />
+                  </button>
+                  <button class="ibtn" title="Partager / enregistrer dans Photos" onClick={() => share(d)}>
+                    <Icon name="share" size={16} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </aside>
+    </div>
+  );
+}
