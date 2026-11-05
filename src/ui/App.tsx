@@ -2,6 +2,7 @@ import { useEffect } from 'preact/hooks';
 import { canRedo, canUndo, historyRev, media, page, playhead, playing, project, redo, removeClip, selectedClip, timeline, undo, updateProject, type Page } from '../state/store';
 import { autoCreate, nudgeClip } from '../state/actions';
 import { ProjectsPanel, SaveIndicator, projectsOpen } from './Projects';
+import { AccessBanner } from './Sources';
 import { MediaPage } from './MediaPage';
 import { EditPage } from './EditPage';
 import { ExportPage } from './ExportPage';
@@ -134,6 +135,7 @@ export function App() {
           )}
         </div>
       </header>
+      <AccessBanner />
       <main class="main">
         {page.value === 'media' && <MediaPage />}
         {page.value === 'edit' && <EditPage />}

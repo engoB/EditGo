@@ -1,7 +1,16 @@
 // Modèle de données central d’EditGo.
 
 export type MediaKind = 'photo' | 'video';
-export type DateSource = 'exif' | 'video' | 'filename' | 'file' | 'demo' | 'manual';
+export type DateSource =
+  | 'exif' // métadonnées de la photo
+  | 'video' // métadonnées de la vidéo
+  | 'sidecar' // fichier JSON de Google Takeout
+  | 'filename' // date et heure dans le nom du fichier
+  | 'sequence' // déduite de la numérotation de l'appareil (entre deux photos datées)
+  | 'folder' // déduite du nom du dossier
+  | 'file' // date de modification du fichier (peu fiable)
+  | 'demo'
+  | 'manual';
 
 export interface FocusPoint {
   x: number; // 0..1
@@ -18,6 +27,12 @@ export interface MediaItem {
   demoSpec?: DemoSpec;
   /** Fichier absent après réouverture d'un projet (à réimporter). */
   missing?: boolean;
+  /** Dossier source dont provient le média. */
+  sourceId?: string;
+  /** Écarté automatiquement (capture d'écran, miniature…) : raison affichée. */
+  skipReason?: string;
+  /** Appareil (EXIF) : aide à repérer les captures et les images reçues. */
+  camera?: string;
   name: string;
   path: string;
   size: number;
@@ -129,8 +144,20 @@ export interface Project {
   clips: Clip[];
 }
 
+export interface MediaSource {
+  id: string;
+  name: string;
+  /** Accès mémorisé au dossier (Chrome, Edge) : permet l'actualisation et la réouverture sans copie. */
+  handle?: FileSystemDirectoryHandle;
+  addedAt: number;
+  scannedAt: number;
+  count: number;
+}
+
 export interface ImportOptions {
   nearDuplicates: boolean; // regrouper les rafales / quasi-doublons
   similarity: number; // distance de Hamming max (0..16)
   chapterGapHours: number;
+  /** Écarter automatiquement captures d'écran, miniatures et images reçues sans appareil. */
+  skipJunk: boolean;
 }

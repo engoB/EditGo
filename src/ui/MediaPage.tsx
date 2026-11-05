@@ -1,11 +1,14 @@
 import { useMemo, useRef, useState } from 'preact/hooks';
 import { importOpts, importing, media, project, updateProject } from '../state/store';
-import { autoCreate, forceInclude, importFiles, loadDemo, recomputeDuplicates, toggleExcluded, applyTheme, setMediaDate } from '../state/actions';
+import { addDroppedHandles, addFolderSource, addPickedFolders, autoCreate, forceInclude, importFiles, loadDemo, recomputeDuplicates, toggleExcluded, applyTheme, setMediaDate } from '../state/actions';
+import { SourcesPanel } from './Sources';
 import { newProject } from '../state/persist';
 import { RecentProjects } from './Projects';
 import { buildStory, usable } from '../story/auto';
 import { layout } from '../story/timeline';
-import { filesFromDataTransfer, filesFromDirectoryHandle } from '../media/analyze';
+import { filesFromDataTransfer } from '../media/analyze';
+import { dropHandles } from '../media/sources';
+import { DATE_SOURCE_LABEL } from '../media/dates';
 import { chapters } from '../story/auto';
 import { Icon } from './icons';
 import { Segmented, Slider, Toggle } from './controls';
@@ -18,22 +21,31 @@ type Filter = 'all' | 'photo' | 'video' | 'dups' | 'excluded';
 function useImporters() {
   const fileRef = useRef<HTMLInputElement>(null);
   const dirRef = useRef<HTMLInputElement>(null);
+  const entries = (list: FileList) =>
+    Array.from(list).map((f) => ({ file: f, path: (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name }));
   const onFiles = (list: FileList | null) => {
-    if (!list) return;
-    void importFiles(Array.from(list).map((f) => ({ file: f, path: (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name })));
+    if (list?.length) void importFiles(entries(list));
+  };
+  const onFolder = (list: FileList | null) => {
+    if (list?.length) void addPickedFolders(entries(list));
   };
   const pickFolder = async () => {
-    try {
-      const res = await filesFromDirectoryHandle();
-      if (res) return void importFiles(res);
-    } catch (e) {
-      if ((e as DOMException).name === 'AbortError') return;
-    }
-    dirRef.current?.click();
+    // sélecteur natif (accès mémorisé, actualisable) ; sinon sélecteur de dossier classique
+    if (!(await addFolderSource())) dirRef.current?.click();
   };
   const inputs = (
     <>
-      <input ref={fileRef} type="file" multiple accept="image/*,video/*,.heic,.heif,.mov,.mkv" hidden onChange={(e) => onFiles((e.target as HTMLInputElement).files)} />
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        accept="image/*,video/*,.heic,.heif,.mov,.mkv"
+        hidden
+        onChange={(e) => {
+          onFiles((e.target as HTMLInputElement).files);
+          (e.target as HTMLInputElement).value = '';
+        }}
+      />
       <input
         ref={dirRef}
         type="file"
@@ -42,7 +54,10 @@ function useImporters() {
         // @ts-expect-error attributs non standard
         webkitdirectory=""
         directory=""
-        onChange={(e) => onFiles((e.target as HTMLInputElement).files)}
+        onChange={(e) => {
+          onFolder((e.target as HTMLInputElement).files);
+          (e.target as HTMLInputElement).value = '';
+        }}
       />
     </>
   );
@@ -66,7 +81,10 @@ export function useDropZone() {
         if (!e.dataTransfer?.types.includes('Files')) return;
         e.preventDefault();
         setOver(false);
-        void importFiles(await filesFromDataTransfer(e.dataTransfer));
+        // dossiers déposés : accès mémorisable si le navigateur le permet, sinon lecture classique
+        const hp = dropHandles(e.dataTransfer);
+        if (hp) void addDroppedHandles(await hp);
+        else void addPickedFolders(await filesFromDataTransfer(e.dataTransfer));
       },
     },
   };
@@ -89,27 +107,27 @@ function Welcome() {
           <em>montés comme au cinéma.</em>
         </h1>
         <p class="lead">
-          Déposez un dossier de photos et de vidéos (téléphone, PC, Google Drive synchronisé). EditGo retrouve la chronologie, écarte les doublons,
+          Donnez-lui un ou plusieurs dossiers (téléphone, PC, Google Drive synchronisé, export Google Photos). EditGo trie tout seul : il date chaque fichier, écarte doublons et captures d’écran,
           choisit les meilleurs moments et compose un film étalonné, titré et mis en musique — exportable jusqu’en 4K.
         </p>
         <div class="welcome-actions">
-          <button class="btn btn-primary btn-lg" onClick={pickFiles}>
-            <Icon name="upload" /> Importer photos & vidéos
+          <button class="btn btn-primary btn-lg" onClick={pickFolder}>
+            <Icon name="folder" /> Ajouter des dossiers
           </button>
-          <button class="btn btn-ghost btn-lg" onClick={pickFolder}>
-            <Icon name="folder" /> Choisir un dossier
+          <button class="btn btn-ghost btn-lg" onClick={pickFiles}>
+            <Icon name="upload" /> Importer des fichiers
           </button>
           <button class="btn btn-link" onClick={loadDemo}>
             <Icon name="sparkles" size={16} /> Essayer avec la démo
           </button>
         </div>
-        <div class="drop-hint">ou glissez-déposez vos fichiers et dossiers ici</div>
+        <div class="drop-hint">ou glissez-déposez ici autant de dossiers que vous voulez</div>
         <RecentProjects />
         <ul class="features">
           <li>
             <Icon name="clock" />
-            <b>Chronologie</b>
-            <span>Dates EXIF, métadonnées vidéo, noms de fichiers</span>
+            <b>Tri automatique</b>
+            <span>EXIF, vidéo, Google Takeout, noms de fichiers et de dossiers, numérotation</span>
           </li>
           <li>
             <Icon name="layers" />
@@ -135,7 +153,7 @@ function Welcome() {
 function Tile({ m, master, onDate }: { m: MediaItem; master?: MediaItem; onDate: () => void }) {
   const dup = !!m.duplicateOf;
   const sim = !!m.similarTo;
-  const off = dup || sim || m.excluded || !!m.error;
+  const off = dup || sim || m.excluded || !!m.error || !!m.missing;
   return (
     <div class={'tile' + (off ? ' off' : '')} title={`${m.path}\n${new Date(m.date).toLocaleString('fr-FR')}`}>
       {m.thumb ? <img src={m.thumb} loading="lazy" alt="" draggable={false} /> : <div class="tile-ph" />}
@@ -149,9 +167,10 @@ function Tile({ m, master, onDate }: { m: MediaItem; master?: MediaItem; onDate:
         {sim && <span class="badge badge-info">{m.kind === 'video' ? 'Live Photo' : 'Similaire'}</span>}
         {m.error && <span class="badge badge-err">Illisible</span>}
         {m.missing && <span class="badge badge-err">Absent · à réimporter</span>}
+        {m.skipReason && <span class="badge badge-warn">{m.skipReason}</span>}
         {m.dateSource === 'manual' && <span class="badge badge-dim">Date corrigée</span>}
-        {!m.error && (m.dateSource === 'filename' || m.dateSource === 'file') && (
-          <span class="badge badge-dim" title={m.dateSource === 'filename' ? 'Date lue dans le nom du fichier' : 'Date de modification du fichier'}>
+        {!m.error && (m.dateSource === 'sequence' || m.dateSource === 'folder' || m.dateSource === 'file') && (
+          <span class={'badge ' + (m.dateSource === 'file' ? 'badge-warn' : 'badge-dim')} title={'Date ' + DATE_SOURCE_LABEL[m.dateSource]}>
             ≈ date
           </span>
         )}
@@ -224,8 +243,9 @@ export function MediaPage() {
     dups: items.filter((m) => m.duplicateOf).length,
     sim: items.filter((m) => m.similarTo).length,
     excluded: items.filter((m) => m.excluded || m.error).length,
+    skipped: items.filter((m) => m.skipReason && m.excluded).length,
   };
-  const usableItems = items.filter((m) => !m.duplicateOf && !m.similarTo && !m.excluded && !m.error);
+  const usableItems = items.filter(usable);
   const first = items[0]?.date,
     last = items[items.length - 1]?.date;
 
@@ -234,7 +254,7 @@ export function MediaPage() {
   );
   // regroupement par chapitre (sur l'ensemble utilisable) puis rattachement des médias écartés
   const chs = chapters(items, opts.chapterGapHours);
-  const groups: { label: string; items: MediaItem[] }[] = chs.map((c) => ({ label: c.label, items: [] }));
+  const groups: { label: string; items: MediaItem[] }[] = chs.map((c) => ({ label: c.event ? `${c.event} · ${c.label}` : c.label, items: [] }));
   const other: MediaItem[] = [];
   for (const m of visible) {
     const ci = chs.findIndex((c) => m.date >= c.start - 1 && m.date <= c.end + 1);
@@ -261,14 +281,7 @@ export function MediaPage() {
       {inputs}
       <aside class="media-side panel">
         <div class="side-block">
-          <div class="side-actions">
-            <button class="btn btn-ghost" onClick={pickFiles}>
-              <Icon name="upload" size={16} /> Fichiers
-            </button>
-            <button class="btn btn-ghost" onClick={pickFolder}>
-              <Icon name="folder" size={16} /> Dossier
-            </button>
-          </div>
+          <SourcesPanel onAddFolder={pickFolder} onAddFiles={pickFiles} />
           {importing.value && (
             <div class="progress-card">
               <div class="progress-line">
@@ -290,7 +303,7 @@ export function MediaPage() {
             <span>vidéos</span>
           </div>
           <div>
-            <b>{stats.dups + stats.sim}</b>
+            <b>{stats.dups + stats.sim + stats.skipped}</b>
             <span>écartés</span>
           </div>
           <div>
@@ -329,6 +342,12 @@ export function MediaPage() {
               }}
             />
           )}
+          <Toggle
+            label="Écarter captures d’écran et miniatures"
+            hint="Appliqué aux prochains imports ; « Inclure » sur une vignette pour la garder"
+            checked={opts.skipJunk}
+            onChange={(v) => (importOpts.value = { ...opts, skipJunk: v })}
+          />
           <Slider
             label="Nouveau moment après"
             value={opts.chapterGapHours}
@@ -452,14 +471,7 @@ const toLocalInput = (t: number) => {
   return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`;
 };
 
-const SOURCE_LABEL: Record<string, string> = {
-  exif: 'lue dans la photo (EXIF)',
-  video: 'lue dans la vidéo',
-  filename: 'déduite du nom du fichier',
-  file: 'date de modification du fichier',
-  demo: 'démo',
-  manual: 'corrigée à la main',
-};
+const SOURCE_LABEL = DATE_SOURCE_LABEL;
 
 export function DateDialog({ m, onClose }: { m: MediaItem; onClose: () => void }) {
   const [v, setV] = useState(toLocalInput(m.date));

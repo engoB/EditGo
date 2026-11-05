@@ -7,9 +7,12 @@ Version autonome en un seul fichier : **https://engob.github.io/EditGo/editgo-ho
 
 ## Ce que fait l'application
 
-**Import et analyse**
-- Fichiers, dossier complet (sous-dossiers compris) ou glisser-déposer. Pour Google Drive : choisir le dossier « Google Drive » synchronisé sur le PC.
-- Chronologie : date EXIF des photos, date de tournage des vidéos (QuickTime / MP4, fuseau Apple compris), sinon date dans le nom du fichier (`IMG_20240512_…`, `PXL_…`, WhatsApp), sinon date du fichier.
+**Dossiers sources et tri automatique**
+- Autant de dossiers que voulu (téléphone, PC, dossier Google Drive synchronisé, export Google Photos / Takeout), ajoutés un par un ou glissés-déposés ensemble ; sous-dossiers parcourus, dossiers système et miniatures ignorés.
+- Accès mémorisé (Chrome, Edge) : à la réouverture d'un projet, les dossiers sont relus automatiquement et les nouvelles photos ajoutées ; les fichiers déplacés ou supprimés sont signalés. Ces fichiers ne sont pas recopiés, ce qui économise l'espace. Autres navigateurs : les fichiers sont copiés dans le projet.
+- Datation, de la plus fiable à la moins fiable : EXIF / métadonnées vidéo (fuseau Apple compris), fichier JSON Google Takeout (`photoTakenTime`), date et heure dans le nom (`IMG_20240512_…`, `PXL_…`, WhatsApp, captures, horodatages Telegram/Signal), numérotation de l'appareil (`IMG_4203` placée entre `IMG_4201` et `IMG_4207` déjà datées), nom du dossier (« 2023-07 Vacances », « Mai 2021 », « 2022/05 »), date du fichier. La source de chaque date est indiquée et corrigeable.
+- Captures d'écran, enregistrements d'écran, miniatures, images trop petites et GIF écartés automatiquement (réglable, « Inclure » pour les garder).
+- Les noms de dossiers d'événements (« Vacances Bretagne ») servent de titres de chapitres et de titre du film.
 - Doublons stricts ignorés (empreinte SHA-256 du contenu).
 - Quasi-doublons regroupés, réglables : rafales, copies recompressées (dHash + signature 16×16), vidéos Live Photo. La meilleure image du groupe est gardée ; « Garder aussi » réintègre une image.
 - Score de qualité (netteté, exposition, contraste, couleurs) et point d'intérêt pour le cadrage.

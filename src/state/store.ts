@@ -1,5 +1,5 @@
 import { computed, signal, batch } from '@preact/signals';
-import type { Clip, ImportOptions, MediaItem, Project } from '../types';
+import type { Clip, ImportOptions, MediaItem, MediaSource, Project } from '../types';
 import { THEMES } from '../presets';
 import { layout } from '../story/timeline';
 
@@ -31,7 +31,8 @@ export const media = signal<MediaItem[]>([]);
 export const mediaMap = computed(() => new Map(media.value.map((m) => [m.id, m])));
 export const project = signal<Project>(defaultProject());
 export const timeline = computed(() => layout(project.value.clips));
-export const importOpts = signal<ImportOptions>({ nearDuplicates: true, similarity: 8, chapterGapHours: 4 });
+export const importOpts = signal<ImportOptions>({ nearDuplicates: true, similarity: 8, chapterGapHours: 4, skipJunk: true });
+export const sources = signal<MediaSource[]>([]);
 export const page = signal<Page>('media');
 export const selectedClip = signal<string | null>(null);
 export const playhead = signal(0);

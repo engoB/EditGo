@@ -3,8 +3,9 @@
 //  - Origin Private File System (ou IndexedDB en repli) : copie des fichiers médias,
 //    dédupliquée par empreinte, pour rouvrir un projet sans réimporter.
 import { batch, effect, signal } from '@preact/signals';
-import type { ImportOptions, MediaItem, Project } from '../types';
-import { importOpts, media, musicBuffer, musicFile, page, playhead, project, resetHistory, selectedClip, timeline, defaultProject } from './store';
+import type { ImportOptions, MediaItem, MediaSource, Project } from '../types';
+import { ensurePermission, resolveInSource } from '../media/sources';
+import { importOpts, media, musicBuffer, musicFile, page, playhead, project, resetHistory, selectedClip, sources, timeline, defaultProject } from './store';
 import { demoDrawer } from '../media/demo';
 import { uid } from '../util';
 
@@ -32,23 +33,26 @@ interface ProjectData {
   importOpts: ImportOptions;
   media: StoredMedia[];
   music: { key: string; name: string; type: string } | null;
+  sources?: MediaSource[];
 }
 
 export const currentProjectId = signal<string | null>(null);
 export const saveState = signal<'idle' | 'saving' | 'saved' | 'error'>('idle');
 export const saveProgress = signal<{ done: number; total: number } | null>(null);
 export const projectsRev = signal(0);
+/** Dossiers mémorisés dont l'accès doit être réautorisé (clic requis par le navigateur). */
+export const pendingAccess = signal<MediaSource[]>([]);
+const DEFAULT_OPTS: ImportOptions = { nearDuplicates: true, similarity: 8, chapterGapHours: 4, skipJunk: true };
 
 // ---------- IndexedDB ----------
 let dbp: Promise<IDBDatabase> | null = null;
 function db(): Promise<IDBDatabase> {
   dbp ??= new Promise((res, rej) => {
-    const r = indexedDB.open('editgo', 1);
+    const r = indexedDB.open('editgo', 2);
     r.onupgradeneeded = () => {
       const d = r.result;
-      d.createObjectStore('meta', { keyPath: 'id' });
-      d.createObjectStore('data', { keyPath: 'id' });
-      d.createObjectStore('blobs');
+      for (const [n, k] of [['meta', 'id'], ['data', 'id'], ['blobs', ''], ['handles', '']] as const)
+        if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, k ? { keyPath: k } : undefined);
     };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
@@ -61,7 +65,7 @@ function req<T>(r: IDBRequest<T>): Promise<T> {
     r.onerror = () => rej(r.error);
   });
 }
-async function store(name: 'meta' | 'data' | 'blobs', mode: IDBTransactionMode = 'readonly') {
+async function store(name: 'meta' | 'data' | 'blobs' | 'handles', mode: IDBTransactionMode = 'readonly') {
   return (await db()).transaction(name, mode).objectStore(name);
 }
 
@@ -223,6 +227,7 @@ async function doSave() {
       project: p,
       importOpts: importOpts.value,
       media: await serializeMedia(items),
+      sources: sources.value.map(({ handle: _h, ...x }) => (void _h, { ...x, linked: !!_h })),
       music: musicFile.value ? { key: 'music-' + musicFile.value.size + '-' + musicFile.value.name.replace(/[^a-z0-9.]/gi, '-'), name: musicFile.value.name, type: musicFile.value.type } : null,
     };
     const meta: ProjectMeta = {
@@ -237,16 +242,20 @@ async function doSave() {
     };
     const d = await db();
     await new Promise<void>((res, rej) => {
-      const tx = d.transaction(['meta', 'data'], 'readwrite');
+      const tx = d.transaction(['meta', 'data', 'handles'], 'readwrite');
       tx.objectStore('meta').put(meta);
       tx.objectStore('data').put(data);
+      // accès aux dossiers : rangés à part, relus seulement à l'ouverture du projet
+      for (const x of sources.value) if (x.handle) tx.objectStore('handles').put(x.handle, id + ':' + x.id);
       tx.oncomplete = () => res();
       tx.onerror = () => rej(tx.error);
     });
     if (!currentProjectId.value) currentProjectId.value = id;
     projectsRev.value++;
     // copie des fichiers (seulement ceux qui manquent)
-    const todo = items.filter((m) => m.file && !persisted.has(keyOf(m)));
+    // si les accès ne peuvent pas être relus sur ce navigateur, on garde une copie de sécurité
+    const linked = new Set(handlesUnsafe.value ? [] : sources.value.filter((x) => x.handle).map((x) => x.id));
+    const todo = items.filter((m) => m.file && !(m.sourceId && linked.has(m.sourceId)) && !persisted.has(keyOf(m)));
     if (data.music && musicFile.value) await putBlob(data.music.key, musicFile.value);
     let done = 0;
     for (const m of todo) {
@@ -265,14 +274,19 @@ async function doSave() {
   }
 }
 
-async function restoreMedia(list: StoredMedia[]): Promise<MediaItem[]> {
+async function restoreMedia(list: StoredMedia[], srcs: MediaSource[] = []): Promise<MediaItem[]> {
+  const granted = new Map<string, boolean>();
+  for (const x of srcs) if (x.handle) granted.set(x.id, await ensurePermission(x.handle, false));
   return Promise.all(
     list.map(async (s) => {
       const { fileKey, fileType, lastModified, thumbBlob: tb, ...rest } = s;
       const item: MediaItem = { ...rest, file: null, thumb: tb ? URL.createObjectURL(tb) : '' };
       if (tb) thumbCache.set(item.thumb, tb);
+      const src = s.sourceId ? srcs.find((x) => x.id === s.sourceId) : undefined;
       if (s.demoSpec) item.demo = demoDrawer(s.demoSpec, s.width, s.height);
-      else if (fileKey) {
+      else if (src?.handle && granted.get(src.id) && (item.file = await resolveInSource(src.handle, s.path))) {
+        item.missing = false;
+      } else if (fileKey) {
         const b = await getBlob(fileKey);
         if (b) {
           persisted.add(fileKey);
@@ -290,7 +304,8 @@ async function restoreMedia(list: StoredMedia[]): Promise<MediaItem[]> {
 export async function openProject(id: string) {
   const data = (await req((await store('data')).get(id))) as ProjectData | undefined;
   if (!data) throw new Error('Projet introuvable');
-  const items = await restoreMedia(data.media);
+  const srcs = await attachHandles(id, data.sources ?? []);
+  const items = await restoreMedia(data.media, srcs);
   let mfile: File | null = null;
   if (data.music) {
     const b = await getBlob(data.music.key);
@@ -301,7 +316,8 @@ export async function openProject(id: string) {
     currentProjectId.value = id;
     media.value = items;
     project.value = { ...defaultProject(), ...data.project, music: { ...defaultProject().music, ...data.project.music } };
-    importOpts.value = data.importOpts;
+    importOpts.value = { ...DEFAULT_OPTS, ...data.importOpts };
+    sources.value = srcs;
     musicFile.value = mfile;
     musicBuffer.value = null;
     selectedClip.value = null;
@@ -310,9 +326,14 @@ export async function openProject(id: string) {
     saveState.value = 'saved';
   });
   resetHistory();
-  const { prepareMusic } = await import('./actions');
-  void prepareMusic(true);
-  return items.filter((m) => m.missing).length;
+  // dossiers mémorisés : accès à réautoriser, sinon actualisation automatique (nouveaux fichiers)
+  const pending: MediaSource[] = [];
+  for (const x of srcs) if (x.handle && !(await ensurePermission(x.handle, false))) pending.push(x);
+  pendingAccess.value = pending;
+  const actions = await import('./actions');
+  void actions.prepareMusic(true);
+  if (srcs.some((x) => x.handle) && !pending.length) void actions.rescanAll(false);
+  return items.filter((m) => m.missing && !(m.sourceId && pending.some((x) => x.id === m.sourceId))).length;
 }
 
 export function newProject() {
@@ -322,6 +343,8 @@ export function newProject() {
   batch(() => {
     currentProjectId.value = null;
     media.value = [];
+    sources.value = [];
+    pendingAccess.value = [];
     project.value = defaultProject();
     musicFile.value = null;
     musicBuffer.value = null;
@@ -347,9 +370,10 @@ export async function renameProject(id: string, name: string) {
 export async function deleteProject(id: string) {
   const d = await db();
   await new Promise<void>((res, rej) => {
-    const tx = d.transaction(['meta', 'data'], 'readwrite');
+    const tx = d.transaction(['meta', 'data', 'handles'], 'readwrite');
     tx.objectStore('meta').delete(id);
     tx.objectStore('data').delete(id);
+    tx.objectStore('handles').delete(IDBKeyRange.bound(id + ':', id + ':\uffff'));
     tx.oncomplete = () => res();
     tx.onerror = () => rej(tx.error);
   });
@@ -361,7 +385,7 @@ export async function deleteProject(id: string) {
     for (const m of p.media) if (m.fileKey) used.add(m.fileKey);
     if (p.music) used.add(p.music.key);
   }
-  if (currentProjectId.value === null) for (const m of media.value) if (m.file) used.add(keyOf(m));
+  for (const m of media.value) if (m.file) used.add(keyOf(m));
   const dir = await mediaDir();
   const keys: string[] = [];
   if (dir) {
@@ -435,6 +459,7 @@ export function startAutosave() {
     void media.value;
     void importOpts.value;
     void musicFile.value;
+    void sources.value;
     if (first) {
       first = false;
       return;
@@ -444,4 +469,70 @@ export function startAutosave() {
     saveState.value = saveState.value === 'saving' ? 'saving' : 'idle';
     timer = window.setTimeout(() => void saveCurrent(), 1200);
   });
+}
+
+const GUARD = 'editgo-reading-handles';
+/** Vrai si une relecture d'accès aux dossiers a fait planter le navigateur au lancement précédent. */
+export const handlesUnsafe = signal((() => {
+  try {
+    return localStorage.getItem(GUARD) === 'crashed';
+  } catch {
+    return false;
+  }
+})());
+try {
+  // un témoin resté posé = le navigateur s'est arrêté pendant la relecture
+  if (localStorage.getItem(GUARD) === 'reading') {
+    localStorage.setItem(GUARD, 'crashed');
+    handlesUnsafe.value = true;
+  }
+} catch {
+  /* stockage indisponible */
+}
+
+/** Relit les accès mémorisés aux dossiers d'un projet (avec garde-fou anti-plantage). */
+async function attachHandles(projectId: string, srcs: (MediaSource & { linked?: boolean })[]): Promise<MediaSource[]> {
+  const out = srcs.map(({ linked: _l, ...x }) => (void _l, { ...x }) as MediaSource);
+  if (!srcs.some((x) => x.linked || x.handle) || handlesUnsafe.value) return out;
+  try {
+    localStorage.setItem(GUARD, 'reading');
+  } catch {
+    /* sans garde-fou */
+  }
+  try {
+    const st = await store('handles');
+    for (const x of out) {
+      const h = (await req(st.get(projectId + ':' + x.id))) as FileSystemDirectoryHandle | undefined;
+      if (h) x.handle = h;
+    }
+  } catch {
+    /* accès non relisibles : on continue sans */
+  }
+  try {
+    localStorage.removeItem(GUARD);
+  } catch {
+    /* rien */
+  }
+  return out;
+}
+
+/** Réautorise l'accès aux dossiers mémorisés (doit suivre un clic), puis réassocie et actualise. */
+export async function grantPendingAccess() {
+  const list = pendingAccess.value;
+  const ok: MediaSource[] = [];
+  for (const x of list) if (x.handle && (await ensurePermission(x.handle, true))) ok.push(x);
+  pendingAccess.value = list.filter((x) => !ok.includes(x));
+  for (const x of ok) {
+    for (const m of media.value) {
+      if (m.sourceId !== x.id || (m.file && !m.missing)) continue;
+      const f = await resolveInSource(x.handle!, m.path);
+      if (f) {
+        m.file = f;
+        m.missing = false;
+      }
+    }
+  }
+  media.value = [...media.value];
+  const actions = await import('./actions');
+  for (const x of ok) await actions.rescanSource(x.id, false);
 }

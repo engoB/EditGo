@@ -142,20 +142,3 @@ export async function readExif(file: Blob): Promise<ExifInfo> {
     return {};
   }
 }
-
-/** Date déduite du nom de fichier (IMG_20230512_143010, PXL_…, WhatsApp, Screenshot…). */
-export function dateFromFilename(name: string): number | undefined {
-  const base = name.replace(/\.[^.]+$/, '');
-  let m = /(20\d{2}|19\d{2})[-_.]?(\d{2})[-_.]?(\d{2})[-_ T.]?(\d{2})[-_.:h]?(\d{2})[-_.:m]?(\d{2})/.exec(base);
-  if (m) {
-    const [, Y, M, D, h, mi, s] = m.map(Number) as unknown as number[];
-    if (M >= 1 && M <= 12 && D >= 1 && D <= 31 && h < 24 && mi < 60 && s < 60)
-      return new Date(Y, M - 1, D, h, mi, s).getTime();
-  }
-  m = /(20\d{2}|19\d{2})[-_.]?(\d{2})[-_.]?(\d{2})/.exec(base);
-  if (m) {
-    const [, Y, M, D] = m.map(Number) as unknown as number[];
-    if (M >= 1 && M <= 12 && D >= 1 && D <= 31) return new Date(Y, M - 1, D, 12, 0, 0).getTime();
-  }
-  return undefined;
-}

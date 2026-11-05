@@ -2796,3 +2796,76 @@ input[type='number'] {
   padding: 3px 5px;
   text-align: center;
 }
+
+/* ---------- Dossiers sources ---------- */
+.sources {
+  display: grid;
+  gap: 8px;
+}
+.sources-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.src-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 6px 7px 9px;
+  border-radius: 8px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+}
+.src-row > .ico {
+  color: var(--accent);
+}
+.src-row.locked > .ico {
+  color: var(--muted);
+}
+.src-loose > .ico {
+  color: var(--text2);
+}
+.src-txt {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+.src-txt b {
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.src-txt small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.src-row .ibtn {
+  height: 26px;
+  min-width: 26px;
+  padding: 0 4px;
+}
+.src-confirm {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.access-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px max(16px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(90deg, rgba(243, 181, 90, 0.14), rgba(243, 181, 90, 0.04));
+  border-bottom: 1px solid rgba(243, 181, 90, 0.3);
+  font-size: 13px;
+  color: var(--text2);
+}
+.access-banner > .ico {
+  color: var(--accent);
+}
+.access-banner span {
+  flex: 1;
+}
+.app:has(.access-banner) {
+  grid-template-rows: 52px auto 1fr;
+}

@@ -1,7 +1,8 @@
 // Analyse des médias importés : date, vignette, empreintes (exacte + perceptuelle),
 // score de qualité et point d'intérêt (pour le cadrage Ken Burns).
 import type { FocusPoint, ImportOptions, MediaItem } from '../types';
-import { dateFromFilename, readExif } from './exif';
+import { readExif } from './exif';
+import { dateFromName } from './dates';
 import { videoCreationDate } from './mp4date';
 import { uid } from '../util';
 
@@ -197,18 +198,43 @@ async function analyzePhoto(file: File, item: MediaItem) {
     item.date = exif.date;
     item.dateSource = 'exif';
   }
-  let bmp: ImageBitmap;
-  try {
-    bmp = await createImageBitmap(file, { imageOrientation: 'from-image' } as ImageBitmapOptions);
-  } catch {
-    throw new Error(
-      /\.(heic|heif)$/i.test(file.name)
-        ? 'HEIC non lisible par ce navigateur (utilisez Safari ou exportez en JPEG)'
-        : 'Image illisible',
-    );
+  if (exif.make || exif.model) item.camera = [exif.make, exif.model].filter(Boolean).join(' ').trim();
+  let bmp: ImageBitmap | null = null;
+  // Grandes photos dont l'EXIF donne les dimensions : décodage direct en petite taille (bien plus rapide)
+  if (exif.width && exif.height && Math.max(exif.width, exif.height) > 1600) {
+    const rot = (exif.orientation ?? 1) >= 5;
+    const W = rot ? exif.height : exif.width,
+      H = rot ? exif.width : exif.height;
+    const k = 720 / Math.max(W, H);
+    try {
+      const small = await createImageBitmap(file, {
+        imageOrientation: 'from-image',
+        resizeWidth: Math.round(W * k),
+        resizeHeight: Math.round(H * k),
+        resizeQuality: 'medium',
+      } as ImageBitmapOptions);
+      if (Math.abs(small.width / small.height - W / H) < 0.02) {
+        bmp = small;
+        item.width = W;
+        item.height = H;
+      } else small.close();
+    } catch {
+      /* repli : décodage complet */
+    }
   }
-  item.width = bmp.width;
-  item.height = bmp.height;
+  if (!bmp) {
+    try {
+      bmp = await createImageBitmap(file, { imageOrientation: 'from-image' } as ImageBitmapOptions);
+    } catch {
+      throw new Error(
+        /\.(heic|heif)$/i.test(file.name)
+          ? 'HEIC non lisible par ce navigateur (utilisez Safari ou exportez en JPEG)'
+          : 'Image illisible',
+      );
+    }
+    item.width = bmp.width;
+    item.height = bmp.height;
+  }
   item.thumb = await canvasToThumb(bmp, bmp.width, bmp.height);
   Object.assign(item, analyzePixels(bmp, bmp.width, bmp.height));
   bmp.close();
@@ -331,9 +357,9 @@ export async function analyzeFile(file: File, path: string): Promise<MediaItem |
   const item = blankItem(kind, file.name, path, file.size);
   item.file = file;
   item.date = file.lastModified || Date.now();
-  const fromName = dateFromFilename(file.name);
+  const fromName = dateFromName(file.name);
   if (fromName) {
-    item.date = fromName;
+    item.date = fromName.t;
     item.dateSource = 'filename';
   }
   try {
@@ -363,7 +389,7 @@ export function markDuplicates(items: MediaItem[], opts: ImportOptions) {
     arr.push(it);
     byHash.set(it.hash, arr);
   }
-  const rank = (m: MediaItem) => ({ exif: 0, video: 0, manual: 0, filename: 1, demo: 1, file: 2 })[m.dateSource];
+  const rank = (m: MediaItem) => ({ exif: 0, video: 0, manual: 0, sidecar: 0, filename: 1, sequence: 2, folder: 2, demo: 1, file: 3 })[m.dateSource];
   for (const group of byHash.values()) {
     if (group.length < 2) continue;
     group.sort((a, b) => rank(a) - rank(b) || a.date - b.date || a.name.length - b.name.length);

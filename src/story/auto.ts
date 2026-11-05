@@ -3,6 +3,7 @@
 import type { Clip, MediaItem, MotionId, Project, TransitionId } from '../types';
 import { ASPECTS, THEMES } from '../presets';
 import { autoTitle, formatDay, formatMonth, hashStr, rng, uid } from '../util';
+import { eventFromPath } from '../media/dates';
 
 export interface Chapter {
   index: number;
@@ -10,6 +11,8 @@ export interface Chapter {
   end: number;
   items: MediaItem[];
   label: string;
+  /** Nom d'événement tiré des dossiers (« Vacances Bretagne »), si la majorité des médias en provient. */
+  event?: string;
 }
 
 export const usable = (m: MediaItem) => !m.duplicateOf && !m.similarTo && !m.excluded && !m.error && !m.missing;
@@ -37,6 +40,16 @@ export function chapters(items: MediaItem[], gapHours: number): Chapter[] {
   flush();
   const spanDays = out.length ? (out[out.length - 1].end - out[0].start) / 86_400_000 : 0;
   for (const c of out) c.label = spanDays > 120 ? formatMonth(c.start) : formatDay(c.start);
+  // nom d'événement issu des dossiers
+  for (const c of out) {
+    const count = new Map<string, number>();
+    for (const m of c.items) {
+      const e = eventFromPath(m.path);
+      if (e) count.set(e, (count.get(e) ?? 0) + 1);
+    }
+    const top = [...count.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (top && top[1] >= c.items.length * 0.6) c.event = top[0];
+  }
   // plusieurs moments le même jour : on précise le moment de la journée
   const count = new Map<string, number>();
   for (const c of out) count.set(c.label, (count.get(c.label) ?? 0) + 1);
@@ -108,7 +121,10 @@ export function buildStory(items: MediaItem[], project: Project, gapHours: numbe
     });
   }
 
-  const title = project.title || autoTitle(all[0].date, all[all.length - 1].date).title;
+  const events = new Map<string, number>();
+  for (const c of chs) if (c.event) events.set(c.event, (events.get(c.event) ?? 0) + c.items.length);
+  const mainEvent = [...events.entries()].sort((a, b) => b[1] - a[1])[0];
+  const title = project.title || (mainEvent && mainEvent[1] >= all.length * 0.6 ? mainEvent[0] : autoTitle(all[0].date, all[all.length - 1].date).title);
   const subtitle = project.subtitle || autoTitle(all[0].date, all[all.length - 1].date).subtitle;
   const clips: Clip[] = [];
   const rand = rng(hashStr(all.map((m) => m.id).join('|')));
@@ -174,7 +190,7 @@ export function buildStory(items: MediaItem[], project: Project, gapHours: numbe
           volume: m.hasAudio ? 0.7 : 0,
           title:
             firstOfChapter && chs.length > 1
-              ? { text: c.label, sub: '', style: theme.chapterTitle, position: 'lower' }
+              ? { text: c.event ?? c.label, sub: c.event ? c.label : '', style: theme.chapterTitle, position: 'lower' }
               : null,
         }),
       );

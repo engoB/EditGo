@@ -1,7 +1,9 @@
 import { batch } from '@preact/signals';
-import type { MediaItem, Project, ThemeId } from '../types';
+import type { MediaItem, MediaSource, Project, ThemeId } from '../types';
 import { uid } from '../util';
 import { analyzeFile, markDuplicates, mediaKindOf } from '../media/analyze';
+import { junkReason, readSidecar, refineDates, sidecarKey } from '../media/dates';
+import { ensurePermission, groupByRoot, newSource, pickFolderHandle, scanHandle, type ScanEntry } from '../media/sources';
 import { makeDemo } from '../media/demo';
 import { buildStory, usable } from '../story/auto';
 import { retime } from '../story/retime';
@@ -25,17 +27,33 @@ import {
   touchMedia,
   updateProject,
   updateClip,
+  sources,
 } from './store';
 
-export async function importFiles(list: { file: File; path: string }[]) {
+export interface ImportReport {
+  added: number;
+  dups: number;
+  similar: number;
+  skipped: number;
+  inferred: number;
+  errors: number;
+}
+
+/**
+ * Importe des fichiers (médias + éventuels fichiers JSON Google Takeout), puis trie intelligemment :
+ * dates affinées, captures d'écran écartées, doublons repérés, ordre chronologique.
+ */
+export async function importFiles(list: ScanEntry[], sourceId?: string, quiet = false): Promise<ImportReport | null> {
+  const sidecarFiles = list.filter((f) => /\.json$/i.test(f.file.name));
   const files = list.filter((f) => mediaKindOf(f.file));
   if (!files.length) {
-    toast('Aucune photo ni vidéo trouvée dans la sélection.', 'warn');
-    return;
+    if (!quiet) toast('Aucune photo ni vidéo trouvée dans la sélection.', 'warn');
+    return null;
   }
   // ignore les fichiers déjà importés (même nom, taille et date)
-  const known = new Set(media.value.map((m) => (m.file ? `${m.file.name}|${m.file.size}|${m.file.lastModified}` : '')));
-  let fresh = files.filter((f) => !known.has(`${f.file.name}|${f.file.size}|${f.file.lastModified}`));
+  const sig = (f: File) => `${f.name}|${f.size}|${f.lastModified}`;
+  const known = new Set(media.value.filter((m) => m.file).map((m) => sig(m.file!)));
+  let fresh = files.filter((f) => !known.has(sig(f.file)));
   // fichiers absents d'un projet rouvert : on les réassocie (même nom, même taille)
   const missing = media.value.filter((m) => m.missing);
   let relinked = 0;
@@ -45,18 +63,24 @@ export async function importFiles(list: { file: File; path: string }[]) {
       if (!m) return true;
       m.file = f.file;
       m.missing = false;
+      if (sourceId) m.sourceId = sourceId;
       relinked++;
       return false;
     });
     if (relinked) {
       touchMedia();
-      toast(`${relinked} fichier(s) retrouvé(s) et réassocié(s) au projet.`, 'ok');
+      if (!quiet) toast(`${relinked} fichier(s) retrouvé(s) et réassocié(s) au projet.`, 'ok');
     }
   }
   if (!fresh.length) {
-    if (relinked) return;
-    toast('Ces fichiers sont déjà dans la médiathèque.', 'info');
-    return;
+    if (!relinked && !quiet) toast('Ces fichiers sont déjà dans la médiathèque.', 'info');
+    return { added: 0, dups: 0, similar: 0, skipped: 0, inferred: 0, errors: 0 };
+  }
+  // fichiers JSON de Google Takeout : date de prise de vue par média
+  const sidecars = new Map<string, File>();
+  for (const f of sidecarFiles) {
+    const k = sidecarKey(f.path);
+    if (k) sidecars.set(k, f.file);
   }
   importing.value = { done: 0, total: fresh.length, label: 'Analyse des médias…' };
   const results: MediaItem[] = [];
@@ -68,7 +92,18 @@ export async function importFiles(list: { file: File; path: string }[]) {
       while (i < fresh.length) {
         const f = fresh[i++];
         const item = await analyzeFile(f.file, f.path).catch(() => null);
-        if (item) results.push(item);
+        if (item) {
+          item.sourceId = sourceId;
+          const sc = sidecars.get(f.path.toLowerCase());
+          if (sc && item.dateSource !== 'exif' && item.dateSource !== 'video') {
+            const t = await readSidecar(sc);
+            if (t) {
+              item.date = t;
+              item.dateSource = 'sidecar';
+            }
+          }
+          results.push(item);
+        }
         importing.value = { done: (importing.value?.done ?? 0) + 1, total: fresh.length, label: f.file.name };
         if (performance.now() - lastPush > 600) {
           lastPush = performance.now();
@@ -77,21 +112,185 @@ export async function importFiles(list: { file: File; path: string }[]) {
       }
     }),
   );
+  const freshFiles = new Set(fresh.map((f) => f.file));
   const all = [...media.value, ...results];
+  const freshIds = new Set(all.filter((m) => m.file && freshFiles.has(m.file)).map((m) => m.id));
+  const before = new Map(all.map((m) => [m.id, m.dateSource]));
+  refineDates(all);
+  let skipped = 0;
+  if (importOpts.value.skipJunk) {
+    for (const m of all) {
+      if (!freshIds.has(m.id) || m.error) continue;
+      const r = junkReason(m);
+      if (r) {
+        m.skipReason = r;
+        m.excluded = true;
+        skipped++;
+      }
+    }
+  }
   markDuplicates(all, importOpts.value);
   all.sort((a, b) => a.date - b.date);
   batch(() => {
     media.value = all;
     importing.value = null;
+    if (sourceId) sources.value = sources.value.map((s) => (s.id === sourceId ? { ...s, count: all.filter((m) => m.sourceId === sourceId).length, scannedAt: Date.now() } : s));
   });
-  const dups = all.filter((m) => m.duplicateOf).length;
-  const sim = all.filter((m) => m.similarTo).length;
-  const errs = all.filter((m) => m.error).length;
-  toast(
-    `${fresh.length} fichier(s) analysé(s)` + (dups ? ` · ${dups} doublon(s) ignoré(s)` : '') + (sim ? ` · ${sim} quasi-doublon(s)` : '') + (errs ? ` · ${errs} illisible(s)` : ''),
-    errs ? 'warn' : 'ok',
-    5200,
+  const fr = all.filter((m) => freshIds.has(m.id));
+  const report: ImportReport = {
+    added: fr.length,
+    dups: fr.filter((m) => m.duplicateOf).length,
+    similar: fr.filter((m) => m.similarTo).length,
+    skipped,
+    inferred: all.filter((m) => (m.dateSource === 'sequence' || m.dateSource === 'folder') && before.get(m.id) !== m.dateSource).length + fr.filter((m) => m.dateSource === 'sidecar').length,
+    errors: fr.filter((m) => m.error).length,
+  };
+  if (!quiet) toast(reportText(report), report.errors ? 'warn' : 'ok', 6500);
+  return report;
+}
+
+export function reportText(r: ImportReport, where = ''): string {
+  return (
+    `${r.added} média(s) ajouté(s)${where}` +
+    (r.dups ? ` · ${r.dups} doublon(s) ignoré(s)` : '') +
+    (r.similar ? ` · ${r.similar} quasi-doublon(s)` : '') +
+    (r.skipped ? ` · ${r.skipped} capture(s)/miniature(s) écartée(s)` : '') +
+    (r.inferred ? ` · ${r.inferred} date(s) retrouvée(s)` : '') +
+    (r.errors ? ` · ${r.errors} illisible(s)` : '')
   );
+}
+
+// ---------- Dossiers sources ----------
+
+async function importFromHandle(handle: FileSystemDirectoryHandle, existing?: MediaSource): Promise<ImportReport | null> {
+  const src = existing ?? newSource(handle.name, handle);
+  if (!existing) sources.value = [...sources.value, src];
+  importing.value = { done: 0, total: 0, label: `Lecture du dossier « ${handle.name} »…` };
+  const entries = await scanHandle(handle, (n) => (importing.value = { done: 0, total: 0, label: `Lecture de « ${handle.name} » : ${n} fichiers…` }));
+  importing.value = null;
+  // fichiers revenus ou disparus depuis la dernière lecture
+  const byPath = new Map(entries.map((e) => [e.path, e]));
+  let gone = 0;
+  for (const m of media.value) {
+    if (m.sourceId !== src.id) continue;
+    const e = byPath.get(m.path);
+    if (e) {
+      if (!m.file || m.missing) {
+        m.file = e.file;
+        m.missing = false;
+      }
+      byPath.delete(m.path);
+    } else if (!m.missing) {
+      m.missing = true;
+      gone++;
+    }
+  }
+  touchMedia();
+  const rest = [...byPath.values()];
+  const report = rest.some((e) => mediaKindOf(e.file)) ? await importFiles(rest, src.id, true) : { added: 0, dups: 0, similar: 0, skipped: 0, inferred: 0, errors: 0 };
+  sources.value = sources.value.map((s) => (s.id === src.id ? { ...s, count: media.value.filter((m) => m.sourceId === src.id).length, scannedAt: Date.now() } : s));
+  if (gone) toast(`${gone} fichier(s) introuvable(s) dans « ${handle.name} » (déplacés ou supprimés).`, 'warn');
+  return report;
+}
+
+/** Ajoute un dossier (sélecteur natif). Renvoie false si le navigateur ne le permet pas (repli sur <input>). */
+export async function addFolderSource(): Promise<boolean> {
+  let handle: FileSystemDirectoryHandle | null;
+  try {
+    handle = await pickFolderHandle();
+  } catch {
+    return true; // annulé
+  }
+  if (!handle) return false;
+  for (const s of sources.value) {
+    if (s.handle && (await s.handle.isSameEntry(handle))) {
+      toast(`« ${handle.name} » est déjà un dossier source : actualisation.`, 'info');
+      await rescanSource(s.id, true);
+      return true;
+    }
+  }
+  // dossier déjà connu du projet mais dont l'accès n'est plus mémorisé : on le rattache
+  const orphan = sources.value.find((s) => !s.handle && s.name === handle!.name);
+  if (orphan) sources.value = sources.value.map((s) => (s.id === orphan.id ? { ...s, handle: handle! } : s));
+  const r = await importFromHandle(handle, orphan ? { ...orphan, handle } : undefined);
+  if (r) toast(reportText(r, ` depuis « ${handle.name} »`), 'ok', 6500);
+  return true;
+}
+
+/** Dossiers choisis via <input webkitdirectory> ou glisser-déposer classique : une source par dossier racine. */
+export async function addPickedFolders(list: ScanEntry[]) {
+  const groups = groupByRoot(list);
+  for (const [root, entries] of groups) {
+    if (!root) {
+      await importFiles(entries);
+      continue;
+    }
+    let src = sources.value.find((s) => !s.handle && s.name === root);
+    if (!src) {
+      src = newSource(root);
+      sources.value = [...sources.value, src];
+    }
+    const r = await importFiles(entries, src.id, true);
+    if (r) toast(reportText(r, ` depuis « ${root} »`), 'ok', 6500);
+  }
+}
+
+/** Dossiers déposés avec accès mémorisable. */
+export async function addDroppedHandles(handles: FileSystemHandle[]) {
+  const loose: ScanEntry[] = [];
+  for (const h of handles) {
+    if (h.kind === 'directory') {
+      const r = await importFromHandle(h as FileSystemDirectoryHandle);
+      if (r) toast(reportText(r, ` depuis « ${h.name} »`), 'ok', 6500);
+    } else {
+      const f = await (h as FileSystemFileHandle).getFile();
+      loose.push({ file: f, path: f.name });
+    }
+  }
+  if (loose.length) await importFiles(loose);
+}
+
+/** Relit un dossier source : nouveaux fichiers importés, fichiers disparus signalés. */
+export async function rescanSource(id: string, ask: boolean): Promise<ImportReport | null> {
+  const src = sources.value.find((s) => s.id === id);
+  if (!src?.handle) {
+    if (ask) toast('Ce dossier a été ajouté sans accès mémorisé : ajoutez-le à nouveau pour l’actualiser.', 'warn');
+    return null;
+  }
+  if (!(await ensurePermission(src.handle, ask))) {
+    if (ask) toast(`Accès à « ${src.name} » refusé.`, 'warn');
+    return null;
+  }
+  const r = await importFromHandle(src.handle, src);
+  if (r && ask) toast(r.added ? reportText(r, ` dans « ${src.name} »`) : `« ${src.name} » est à jour.`, 'ok', 5000);
+  return r;
+}
+
+/** Actualise toutes les sources accessibles (silencieux sauf nouveautés). */
+export async function rescanAll(ask: boolean) {
+  let added = 0;
+  for (const s of sources.value) {
+    if (!s.handle) continue;
+    const r = await rescanSource(s.id, ask);
+    added += r?.added ?? 0;
+  }
+  if (!ask && added) toast(`${added} nouveau(x) média(s) trouvé(s) dans vos dossiers.`, 'ok', 5000);
+}
+
+/** Retire un dossier source et ses médias (et les plans qui les utilisent). */
+export function removeSource(id: string) {
+  const gone = new Set(media.value.filter((m) => m.sourceId === id).map((m) => m.id));
+  batch(() => {
+    media.value = media.value.filter((m) => !gone.has(m.id));
+    sources.value = sources.value.filter((s) => s.id !== id);
+    const p = project.value;
+    const clips = p.clips
+      .filter((c) => !c.mediaId || !gone.has(c.mediaId) || c.type === 'title')
+      .map((c) => (c.extra?.length ? { ...c, extra: c.extra.filter((x) => !gone.has(x)) } : c))
+      .map((c) => (c.type === 'title' && c.mediaId && gone.has(c.mediaId) ? { ...c, mediaId: null, background: 'gradient' as const } : c));
+    if (clips.length !== p.clips.length || gone.size) commit({ ...p, clips });
+  });
+  recomputeDuplicates();
 }
 
 export function loadDemo() {
@@ -110,6 +309,7 @@ export function toggleExcluded(id: string) {
   const m = mediaMap.value.get(id);
   if (!m) return;
   m.excluded = !m.excluded;
+  if (!m.excluded) m.skipReason = undefined;
   touchMedia();
 }
 
@@ -120,6 +320,7 @@ export function forceInclude(id: string) {
   m.duplicateOf = null;
   m.similarTo = null;
   m.excluded = false;
+  m.skipReason = undefined;
   touchMedia();
 }
 
