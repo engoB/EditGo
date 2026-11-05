@@ -23,6 +23,7 @@ import { detachFromCollage, mergeWithNext, regroupCollages, shiftInCollage, spli
 import type { Clip as ClipT } from '../types';
 import { Player } from './player';
 import { Timeline } from './Timeline';
+import { TrimBar } from './TrimBar';
 import { Icon } from './icons';
 import { Section, Segmented, Select, Slider, Toggle } from './controls';
 import { ASPECTS, LOOKS, THEMES, TITLE_STYLES, TRANSITIONS } from '../presets';
@@ -356,15 +357,7 @@ function ClipInspector({ c }: { c: Clip }) {
         />
         {isVideo && (
           <>
-            <Slider
-              label="Point d’entrée (découpe)"
-              value={c.trimIn}
-              min={0}
-              max={Math.max(0.01, m!.duration - 0.5)}
-              step={0.05}
-              format={(v) => `${v.toFixed(2)} s / ${m!.duration.toFixed(1)} s`}
-              onInput={(v) => set({ trimIn: v, duration: Math.min(c.duration, (m!.duration - v) / c.speed) }, false)}
-            />
+            <TrimBar c={c} m={m!} />
             <Slider label="Vitesse" value={c.speed} min={0.25} max={2} step={0.05} format={(v) => `${v.toFixed(2)}×`} onInput={(v) => set({ speed: v, duration: Math.min(c.duration, (m!.duration - c.trimIn) / v) }, false)} />
             <Slider label="Volume du son" value={c.volume} min={0} max={1} step={0.01} format={(v) => (v ? Math.round(v * 100) + ' %' : 'Muet')} onInput={(v) => set({ volume: v }, false)} />
           </>

@@ -43,6 +43,10 @@ export const musicFile = signal<File | null>(null);
 export const musicBusy = signal(false);
 export const timelineZoom = signal(60); // px par seconde
 export const timelineView = signal<'timeline' | 'storyboard'>('timeline');
+/** Médias dont la date vient de changer (mis en évidence dans la médiathèque). */
+export const movedIds = signal<string[]>([]);
+/** Dates modifiées depuis la création du montage : proposer de le remettre dans l'ordre. */
+export const datesDirty = signal(false);
 export const mobilePanel = signal<'viewer' | 'media' | 'inspector'>('viewer');
 
 export interface Toast {

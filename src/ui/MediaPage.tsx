@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from 'preact/hooks';
-import { importOpts, importing, media, project, updateProject } from '../state/store';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { importOpts, importing, media, movedIds, project, updateProject } from '../state/store';
 import { addDroppedHandles, addFolderSource, addPickedFolders, autoCreate, forceInclude, importFiles, loadDemo, recomputeDuplicates, toggleExcluded, applyTheme, setMediaDate } from '../state/actions';
 import { SourcesPanel } from './Sources';
 import { MediaViewer } from './MediaViewer';
@@ -201,7 +201,7 @@ function Tile({ m, master, onDate, onOpen }: { m: MediaItem; master?: MediaItem;
   const sim = !!m.similarTo;
   const off = dup || sim || m.excluded || !!m.error || !!m.missing;
   return (
-    <div class={'tile' + (off ? ' off' : '')} title={`${m.path}\n${new Date(m.date).toLocaleString('fr-FR')}`} onClick={onOpen}>
+    <div data-id={m.id} class={'tile' + (off ? ' off' : '') + (movedIds.value.includes(m.id) ? ' moved' : '')} title={`${m.path}\n${new Date(m.date).toLocaleString('fr-FR')}`} onClick={onOpen}>
       {m.thumb ? <img src={m.thumb} loading="lazy" alt="" draggable={false} /> : <div class="tile-ph" />}
       <div class="tile-badges">
         {m.kind === 'video' && (
@@ -296,6 +296,15 @@ export function MediaPage() {
     }
   });
   const [whole, setWhole] = useState(false);
+  // après une correction de date : on montre où le média a été replacé
+  useEffect(() => {
+    const ids = movedIds.value;
+    if (!ids.length) return;
+    const el = document.querySelector(`.tile[data-id="${ids[0]}"]`);
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const t = setTimeout(() => (movedIds.value = []), 3500);
+    return () => clearTimeout(t);
+  }, [movedIds.value]);
   const setTileSize = (v: number) => {
     setTile(v);
     try {

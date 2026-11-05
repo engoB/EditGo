@@ -1,6 +1,6 @@
 import { useEffect } from 'preact/hooks';
 import { canRedo, canUndo, historyRev, media, page, playhead, playing, project, redo, removeClip, selectedClip, timeline, undo, updateProject, type Page } from '../state/store';
-import { autoCreate, nudgeClip } from '../state/actions';
+import { autoCreate, nudgeClip, setVideoBounds } from '../state/actions';
 import { ProjectsPanel, SaveIndicator, projectsOpen } from './Projects';
 import { AccessBanner } from './Sources';
 import { MediaPage } from './MediaPage';
@@ -52,6 +52,13 @@ function useShortcuts() {
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedClip.value) {
         e.preventDefault();
         removeClip(selectedClip.value);
+      } else if ((e.key === 'i' || e.key === 'o') && !mod && selectedClip.value) {
+        // points d'entrée / de sortie du plan vidéo sélectionné à l'image affichée
+        const p = timeline.value.placed.find((x) => x.clip.id === selectedClip.value);
+        if (p && playhead.value >= p.start && playhead.value <= p.end) {
+          const src = p.clip.trimIn + (playhead.value - p.start) * p.clip.speed;
+          setVideoBounds(p.clip.id, e.key === 'i' ? src : null, e.key === 'o' ? src : null);
+        }
       } else if (e.key === 'Escape') {
         selectedClip.value = null;
       }

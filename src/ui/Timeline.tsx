@@ -14,8 +14,9 @@ import {
   beginGesture,
   removeClip,
   timelineView,
+  datesDirty,
 } from '../state/store';
-import { retimeFilm, sortClipsByDate } from '../state/actions';
+import { autoCreate, clearMontage, retimeFilm, sortClipsByDate } from '../state/actions';
 import { Storyboard } from './Storyboard';
 import { newClip } from '../story/auto';
 import { TRANSITIONS, THEMES } from '../presets';
@@ -73,6 +74,7 @@ export function Timeline() {
   const media = mediaMap.value;
   const scroller = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: string; x: number; over: number } | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
   const width = Math.max(total * zoom + PAD * 2 + 200, 400);
   const sel = selectedClip.value;
 
@@ -260,6 +262,45 @@ export function Timeline() {
           <Icon name="clock" size={16} />
           <span>Trier par date</span>
         </button>
+        <div class="reset-wrap">
+          <button class="ibtn" title="Réinitialiser le montage" disabled={!placed.length} onClick={() => setResetOpen(!resetOpen)}>
+            <Icon name="refresh" size={16} />
+            <span>Réinitialiser</span>
+          </button>
+          {resetOpen && (
+            <div class="reset-menu" role="menu">
+              <button
+                onClick={() => {
+                  setResetOpen(false);
+                  void autoCreate();
+                }}
+              >
+                <Icon name="sparkles" size={15} />
+                <span>
+                  <b>Recréer automatiquement</b>
+                  <small>Nouveau montage à partir des médias, dans l’ordre des dates</small>
+                </span>
+              </button>
+              <button
+                onClick={() => {
+                  setResetOpen(false);
+                  clearMontage();
+                }}
+              >
+                <Icon name="trash" size={15} />
+                <span>
+                  <b>Vider le montage</b>
+                  <small>Repartir d’une timeline vide (Ctrl+Z pour annuler)</small>
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
+        {datesDirty.value && placed.length > 1 && (
+          <button class="chip dirty-chip" onClick={sortClipsByDate} title="Des dates ont été corrigées depuis la création du montage">
+            <Icon name="clock" size={12} /> Dates modifiées : remettre dans l’ordre
+          </button>
+        )}
         <div class="tl-spacer" />
         <div class="dur-ctl" title="Durée du film : raccourcir / allonger de 10 %">
           <button class="ibtn" disabled={!placed.length} onClick={() => retimeFilm(total * 0.9)} aria-label="Raccourcir le film">

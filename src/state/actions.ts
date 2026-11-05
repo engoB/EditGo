@@ -29,6 +29,8 @@ import {
   updateProject,
   updateClip,
   sources,
+  movedIds,
+  datesDirty,
 } from './store';
 
 export interface ImportReport {
@@ -331,7 +333,7 @@ export function setMediaDate(id: string, date: number) {
   if (!m || !isFinite(date)) return;
   m.date = date;
   m.dateSource = 'manual';
-  media.value = [...media.value].sort((a, b) => a.date - b.date);
+  afterDateChange(undefined, [id]);
 }
 
 /** Déplace un plan à sa place chronologique dans le montage (cartons d'ouverture et de fin inchangés). */
@@ -376,6 +378,7 @@ export function sortClipsByDate() {
   };
   const order = mid.map((c, i) => ({ c, d: dateOf(i), i })).sort((a, b) => a.d - b.d || a.i - b.i);
   commit({ ...p, clips: [...head, ...order.map((o) => o.c), ...tail] });
+  datesDirty.value = false;
   toast('Montage remis dans l’ordre chronologique.', 'ok', 2200);
 }
 
@@ -444,6 +447,7 @@ export async function autoCreate() {
     page.value = 'edit';
     playhead.value = 0;
     selectedClip.value = null;
+    datesDirty.value = false;
   });
   await prepareMusic();
   const t = Math.round(timeline.value.total);
@@ -618,9 +622,14 @@ export function sameFolder(m: MediaItem): MediaItem[] {
   return media.value.filter((x) => dirOf(x) === d);
 }
 
-function afterDateChange(msg?: string) {
+function afterDateChange(msg?: string, moved: string[] = []) {
   refineDates(media.value);
-  media.value = [...media.value].sort((a, b) => a.date - b.date);
+  markDuplicates(media.value, importOpts.value);
+  batch(() => {
+    media.value = [...media.value].sort((a, b) => a.date - b.date);
+    if (moved.length) movedIds.value = moved;
+    if (moved.length && project.value.clips.some((c) => c.mediaId && moved.includes(c.mediaId))) datesDirty.value = true;
+  });
   if (msg) toast(msg, 'ok', 5000);
 }
 
@@ -658,7 +667,7 @@ export function useDateCandidate(id: string, key: string, folder: boolean) {
     x.dateSource = src === 'exif' || src === 'video' ? src : 'manual';
     n++;
   }
-  afterDateChange(folder ? `${n} média(s) du dossier redaté(s) avec « ${m.dates?.find((d) => d.key === key)?.label} ».` : undefined);
+  afterDateChange(folder ? `${n} média(s) du dossier redaté(s) avec « ${m.dates?.find((d) => d.key === key)?.label} ».` : undefined, targets.map((x) => x.id));
 }
 
 /** Décale toutes les dates d'un dossier pour que `id` soit à `correct` (horloge d'appareil mal réglée). */
@@ -673,5 +682,29 @@ export function shiftFolderDates(id: string, correct: number) {
   }
   const days = Math.round(Math.abs(delta) / 86_400_000);
   const hours = Math.round((Math.abs(delta) % 86_400_000) / 3_600_000);
-  afterDateChange(`${list.length} média(s) décalé(s) de ${delta < 0 ? '−' : '+'}${days ? days + ' j ' : ''}${hours} h.`);
+  afterDateChange(`${list.length} média(s) décalé(s) de ${delta < 0 ? '−' : '+'}${days ? days + ' j ' : ''}${hours} h.`, list.map((x) => x.id));
+}
+
+/** Vide le montage (annulable). */
+export function clearMontage() {
+  const p = project.value;
+  commit({ ...p, clips: [] });
+  selectedClip.value = null;
+  playhead.value = 0;
+  datesDirty.value = false;
+  toast('Montage vidé (Ctrl+Z pour annuler).', 'info', 3500);
+}
+
+/** Définit le point d'entrée ou de sortie (temps source, s) d'un plan vidéo. */
+export function setVideoBounds(clipId: string, inT: number | null, outT: number | null) {
+  const p = project.value;
+  const c = p.clips.find((x) => x.id === clipId);
+  const m = c?.mediaId ? mediaMap.value.get(c.mediaId) : undefined;
+  if (!c || m?.kind !== 'video') return;
+  const curOut = c.trimIn + c.duration * c.speed;
+  let a = inT ?? c.trimIn,
+    b = outT ?? curOut;
+  a = Math.max(0, Math.min(a, m.duration - 0.2));
+  b = Math.max(a + 0.2, Math.min(b, m.duration));
+  updateClip(clipId, { trimIn: Math.round(a * 100) / 100, duration: Math.round(((b - a) / c.speed) * 100) / 100 });
 }

@@ -44,10 +44,13 @@ Version autonome en un seul fichier : **https://engob.github.io/EditGo/editgo-ho
 **Replacer une photo ou une vidéo**
 - Storyboard : vignettes numérotées à glisser-déposer (appui long sur écran tactile).
 - Dans l'inspecteur : flèches plus tôt / plus tard, numéro de position, date de prise de vue modifiable et « Replacer selon la date ».
+- Après toute correction de date, le média est replacé dans l'ordre chronologique et mis en évidence ; si un montage existe, « Dates modifiées : remettre dans l'ordre » le réordonne.
 - Sur la page Médias, clic sur l'heure d'une vignette pour corriger sa date ; « Trier par date » remet tout le montage dans l'ordre chronologique. Raccourci : Alt + ← / →.
 
 **Édition**
 - Timeline : réordonner par glisser, rogner la durée ou le point d'entrée d'une vidéo depuis les bords, couper à la tête de lecture, cartons-titres.
+- Vidéos : barre de découpe avec images-repères, poignées d'entrée et de sortie (et glissement de l'extrait entier), saisie au dixième de seconde, « Entrée ici / Sortie ici » à la tête de lecture (touches I et O).
+- « Réinitialiser » : recréer automatiquement le montage ou le vider (annulable).
 - Par plan : durée, 12 transitions, mouvement Ken Burns, cadrage (remplir / fond flou / entier), titre (6 styles animés), vitesse et volume des vidéos.
 - Étalonnage (8 looks), halo, vignettage, grain, bandes cinéma 2,39:1, formats 16:9, 9:16, 1:1, 4:5, 21:9.
 - Musique originale générée sur l'appareil (3 ambiances) ou morceau importé (tempo détecté), atténuation automatique pendant les vidéos.

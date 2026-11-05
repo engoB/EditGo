@@ -3181,3 +3181,196 @@ input[type='number'] {
   content-visibility: auto;
   contain-intrinsic-size: auto 600px;
 }
+
+.tile.moved {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  animation: moved 0.9s ease-in-out 3;
+}
+@keyframes moved {
+  50% {
+    outline-color: transparent;
+  }
+}
+
+.reset-wrap {
+  position: relative;
+}
+.reset-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: 300px;
+  background: var(--panel2);
+  border: 1px solid var(--line2);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 2px;
+}
+.reset-menu button {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 8px;
+}
+.reset-menu button:hover {
+  background: var(--panel3);
+}
+.reset-menu .ico {
+  color: var(--accent);
+  margin-top: 2px;
+}
+.reset-menu b {
+  display: block;
+  font-size: 13px;
+}
+.reset-menu small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.dirty-chip {
+  border-color: var(--accent);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* ---------- Découpe vidéo ---------- */
+.trimbox {
+  display: grid;
+  gap: 8px;
+}
+.trim-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.trim-head b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.trim-bar {
+  position: relative;
+  height: 54px;
+  border-radius: 7px;
+  background: #0b0b0e;
+  user-select: none;
+  touch-action: none;
+}
+.trim-frames {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+  border-radius: 7px;
+}
+.trim-frames img,
+.trim-frames i {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #18181e;
+}
+.trim-loading {
+  margin: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+.trim-shade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(5, 5, 8, 0.72);
+  pointer-events: none;
+}
+.trim-sel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-top: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  cursor: grab;
+}
+.trim-bar.dragging .trim-sel {
+  cursor: grabbing;
+}
+.trim-h {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 14px;
+  margin-left: -7px;
+  cursor: ew-resize;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+}
+.trim-h i {
+  width: 8px;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+.trim-h i::after {
+  content: '';
+  display: block;
+  width: 2px;
+  height: 14px;
+  margin: 20px auto 0;
+  background: #1c1208;
+  border-radius: 2px;
+}
+.trim-ph {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--red);
+  pointer-events: none;
+  z-index: 3;
+}
+.trim-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.trim-fields label {
+  display: grid;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.trim-fields .input {
+  padding: 6px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.trim-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.trim-btns .btn {
+  flex: 1;
+}
+/* le menu « Réinitialiser » doit passer au-dessus de la visionneuse */
+.timeline {
+  overflow: visible;
+  position: relative;
+  z-index: 4;
+}
+.timeline .tl-body {
+  overflow: hidden;
+  border-radius: 0 0 var(--r) var(--r);
+}
