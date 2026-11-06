@@ -42,7 +42,28 @@ export const musicBuffer = signal<AudioBuffer | null>(null);
 export const musicFile = signal<File | null>(null);
 export const musicBusy = signal(false);
 export const timelineZoom = signal(60); // px par seconde
-export const timelineView = signal<'timeline' | 'storyboard'>('timeline');
+/** Petit écran (téléphone) : mise en page tactile. */
+export const isCompact = () => typeof matchMedia === 'function' && matchMedia('(max-width: 760px)').matches;
+export const timelineView = signal<'timeline' | 'storyboard'>(
+  (() => {
+    try {
+      const v = localStorage.getItem('editgo-tlview');
+      if (v === 'timeline' || v === 'storyboard') return v;
+    } catch {
+      /* préférence absente */
+    }
+    // sur téléphone, les vignettes du storyboard sont bien plus faciles à toucher
+    return isCompact() ? 'storyboard' : 'timeline';
+  })(),
+);
+export function setTimelineView(v: 'timeline' | 'storyboard') {
+  timelineView.value = v;
+  try {
+    localStorage.setItem('editgo-tlview', v);
+  } catch {
+    /* préférence non mémorisée */
+  }
+}
 /** Médias dont la date vient de changer (mis en évidence dans la médiathèque). */
 export const movedIds = signal<string[]>([]);
 /** Dates modifiées depuis la création du montage : proposer de le remettre dans l'ordre. */

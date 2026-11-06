@@ -821,25 +821,68 @@ function Inspector() {
   );
 }
 
+/** Téléphone : barre d'actions du plan sélectionné (déplacer, régler, supprimer). */
+function ClipBar() {
+  const sel = selectedClip.value;
+  if (!sel) return null;
+  const { placed } = timeline.value;
+  const i = placed.findIndex((x) => x.clip.id === sel);
+  if (i < 0) return null;
+  const p = placed[i];
+  const m = p.clip.mediaId ? mediaMap.value.get(p.clip.mediaId) : undefined;
+  const n = 1 + (p.clip.extra?.length ?? 0);
+  const kind = !m ? 'Carton-titre' : n > 1 ? `Mosaïque · ${n} photos` : m.kind === 'video' ? 'Vidéo' : 'Photo';
+  return (
+    <div class="clip-bar panel" role="toolbar" aria-label="Plan sélectionné">
+      {m?.thumb ? <img src={m.thumb} alt="" /> : <span class="cb-ph">T</span>}
+      <span class="cb-txt">
+        <b>
+          Plan {i + 1}/{placed.length}
+        </b>
+        <small>
+          {kind} · {(p.end - p.start).toFixed(1)} s
+        </small>
+      </span>
+      <button class="ibtn" aria-label="Déplacer plus tôt" title="Déplacer plus tôt" disabled={i === 0} onClick={() => nudgeClip(sel, -1)}>
+        <Icon name="stepBack" size={18} />
+      </button>
+      <button class="ibtn" aria-label="Déplacer plus tard" title="Déplacer plus tard" disabled={i === placed.length - 1} onClick={() => nudgeClip(sel, 1)}>
+        <Icon name="stepFwd" size={18} />
+      </button>
+      <button class="ibtn" aria-label="Supprimer le plan" onClick={() => removeClip(sel)}>
+        <Icon name="trash" size={17} />
+      </button>
+      <button class="btn btn-primary btn-sm" onClick={() => (mobilePanel.value = 'inspector')}>
+        <Icon name="sliders" size={15} /> Régler
+      </button>
+      <button class="ibtn" aria-label="Désélectionner" onClick={() => (selectedClip.value = null)}>
+        <Icon name="x" size={17} />
+      </button>
+    </div>
+  );
+}
+
 export function EditPage() {
   const mp = mobilePanel.value;
+  const tabs: { id: typeof mp; label: string; icon: string }[] = [
+    { id: 'viewer', label: 'Montage', icon: 'film' },
+    { id: 'inspector', label: 'Réglages', icon: 'sliders' },
+    { id: 'media', label: 'Ajouter', icon: 'plus' },
+  ];
   return (
-    <div class={'edit-page mp-' + mp}>
+    <div class={'edit-page mp-' + mp + (selectedClip.value ? ' has-sel' : '')}>
       <Pool />
       <Viewer />
       <Inspector />
       <Timeline />
-      <nav class="mobile-switch">
-        <button class={mp === 'media' ? 'on' : ''} onClick={() => (mobilePanel.value = 'media')}>
-          <Icon name="image" size={16} /> Médias
-        </button>
-        <button class={mp === 'viewer' ? 'on' : ''} onClick={() => (mobilePanel.value = 'viewer')}>
-          <Icon name="film" size={16} /> Timeline
-        </button>
-        <button class={mp === 'inspector' ? 'on' : ''} onClick={() => (mobilePanel.value = 'inspector')}>
-          <Icon name="sliders" size={16} /> Réglages
-        </button>
+      <nav class="mobile-switch" aria-label="Panneaux">
+        {tabs.map((t) => (
+          <button class={mp === t.id ? 'on' : ''} onClick={() => (mobilePanel.value = t.id)}>
+            <Icon name={t.icon} size={16} /> {t.label}
+          </button>
+        ))}
       </nav>
+      {mp === 'viewer' && <ClipBar />}
     </div>
   );
 }

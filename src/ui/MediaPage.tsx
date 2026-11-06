@@ -296,6 +296,9 @@ export function MediaPage() {
     }
   });
   const [whole, setWhole] = useState(false);
+  // téléphone : panneaux repliés (sources et options) et feuille « Créer le film »
+  const [sideOpen, setSideOpen] = useState(false);
+  const [sheet, setSheet] = useState(false);
   // après une correction de date : on montre où le média a été replacé
   useEffect(() => {
     const ids = movedIds.value;
@@ -344,7 +347,37 @@ export function MediaPage() {
   return (
     <div class={'media-page' + (drop.over ? ' drop-over' : '')} {...drop.props}>
       {inputs}
-      <aside class="media-side panel">
+      <div class="m-summary panel">
+        <div class="ms-stats">
+          <b>{stats.photos}</b> photos · <b>{stats.videos}</b> vidéos
+          {stats.dups + stats.sim + stats.skipped > 0 && (
+            <>
+              {' '}
+              · <b>{stats.dups + stats.sim + stats.skipped}</b> écartés
+            </>
+          )}
+          {first && (
+            <small>
+              {formatDayShort(first)} → {formatDayShort(last!)} · {chs.length} moments
+            </small>
+          )}
+        </div>
+        <button class="ibtn" title="Ajouter un dossier" onClick={pickFolder}>
+          <Icon name="folder" size={17} />
+        </button>
+        <button class="ibtn" title="Ajouter des fichiers" onClick={pickFiles}>
+          <Icon name="plus" size={18} />
+        </button>
+        <button class={'ibtn' + (sideOpen ? ' on' : '')} title="Sources et options de tri" onClick={() => setSideOpen(!sideOpen)}>
+          <Icon name="sliders" size={17} />
+        </button>
+        {importing.value && (
+          <div class="progress-line ms-progress">
+            <i style={{ width: `${(importing.value.done / Math.max(1, importing.value.total)) * 100}%` }} />
+          </div>
+        )}
+      </div>
+      <aside class={'media-side panel' + (sideOpen ? ' open' : '')}>
         <div class="side-block">
           <SourcesPanel onAddFolder={pickFolder} onAddFiles={pickFiles} />
           {importing.value && (
@@ -488,9 +521,21 @@ export function MediaPage() {
         </div>
       </section>
 
-      <aside class="create-side panel">
+      <div class="create-bar">
+        <button class="btn btn-ghost" data-act="create-opts" onClick={() => setSheet(true)}>
+          <Icon name="palette" size={16} /> {THEMES[project.value.theme].label}
+        </button>
+        <button class="btn btn-primary" data-act="create" disabled={!usableItems.length || !!importing.value} onClick={() => void autoCreate()}>
+          <Icon name="sparkles" size={16} /> {project.value.clips.length ? 'Recréer le film' : 'Créer le film'}
+        </button>
+      </div>
+      {sheet && <div class="sheet-back" onClick={() => setSheet(false)} />}
+      <aside class={'create-side panel' + (sheet ? ' sheet-open' : '')}>
         <h3 class="create-title">
           <Icon name="wand" /> Créer le film
+          <button class="ibtn sheet-close" aria-label="Fermer" onClick={() => setSheet(false)}>
+            <Icon name="x" size={18} />
+          </button>
         </h3>
         <p class="side-note">
           {usableItems.length} médias retenus. Choisissez une ambiance et une durée, le montage est automatique — tout reste modifiable ensuite.
@@ -537,7 +582,15 @@ export function MediaPage() {
           <span class="field-label">Titre (facultatif)</span>
           <input class="input" placeholder="Titre automatique selon les dates" value={project.value.title} onInput={(e) => updateProject({ title: (e.target as HTMLInputElement).value }, false)} />
         </label>
-        <button class="btn btn-primary btn-lg btn-block" disabled={!usableItems.length || !!importing.value} onClick={() => void autoCreate()}>
+        <button
+          class="btn btn-primary btn-lg btn-block"
+          data-act="create-go"
+          disabled={!usableItems.length || !!importing.value}
+          onClick={() => {
+            setSheet(false);
+            void autoCreate();
+          }}
+        >
           <Icon name="sparkles" /> {project.value.clips.length ? 'Recréer le film' : 'Créer le film'}
         </button>
       </aside>

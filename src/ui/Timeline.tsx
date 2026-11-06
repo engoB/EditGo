@@ -14,6 +14,7 @@ import {
   beginGesture,
   removeClip,
   timelineView,
+  setTimelineView,
   datesDirty,
 } from '../state/store';
 import { autoCreate, clearMontage, retimeFilm, sortClipsByDate } from '../state/actions';
@@ -285,7 +286,7 @@ export function Timeline() {
           <Icon name="scissors" size={16} />
           <span>Couper</span>
         </button>
-        <button class="ibtn" title="Supprimer le plan sélectionné (Suppr)" disabled={!sel} onClick={() => sel && removeClip(sel)}>
+        <button class="ibtn trash-btn" title="Supprimer le plan sélectionné (Suppr)" disabled={!sel} onClick={() => sel && removeClip(sel)}>
           <Icon name="trash" size={16} />
           <span>Supprimer</span>
         </button>
@@ -343,10 +344,10 @@ export function Timeline() {
           </button>
         </div>
         <div class="seg seg-sm view-seg">
-          <button class={timelineView.value === 'timeline' ? 'on' : ''} onClick={() => (timelineView.value = 'timeline')}>
+          <button class={timelineView.value === 'timeline' ? 'on' : ''} onClick={() => setTimelineView('timeline')}>
             Timeline
           </button>
-          <button class={timelineView.value === 'storyboard' ? 'on' : ''} onClick={() => (timelineView.value = 'storyboard')}>
+          <button class={timelineView.value === 'storyboard' ? 'on' : ''} onClick={() => setTimelineView('storyboard')}>
             Storyboard
           </button>
         </div>

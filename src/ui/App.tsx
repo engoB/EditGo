@@ -74,13 +74,55 @@ function useShortcuts() {
   }, []);
 }
 
+function Steps({ cls }: { cls: string }) {
+  const hasClips = project.value.clips.length > 0;
+  const hasMedia = media.value.length > 0;
+  return (
+    <nav class={cls} aria-label="Étapes">
+      {PAGES.map((p, i) => {
+        const done = p.id === 'media' ? hasMedia : p.id === 'edit' ? hasClips : false;
+        const sub =
+          p.id === 'media'
+            ? hasMedia
+              ? `${media.value.length} fichiers`
+              : 'importer'
+            : p.id === 'edit'
+              ? hasClips
+                ? `${project.value.clips.length} plans · ${fmtShort(timeline.value.total)}`
+                : 'créer le film'
+              : 'fichier vidéo';
+        return (
+          <button
+            class={(page.value === p.id ? 'on' : '') + (done ? ' done' : '')}
+            disabled={p.id !== 'media' && !hasClips && !hasMedia}
+            aria-current={page.value === p.id ? 'page' : undefined}
+            onClick={() => {
+              playing.value = false;
+              page.value = p.id;
+            }}
+          >
+            <i class="step-n">{done && page.value !== p.id ? <Icon name="check" size={11} /> : i + 1}</i>
+            <span class="bn-ico">
+              <Icon name={p.icon} size={20} />
+            </span>
+            <span class="step-txt">
+              <b>{p.label}</b>
+              <small>{sub}</small>
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 export function App() {
   useShortcuts();
   void historyRev.value;
   const hasClips = project.value.clips.length > 0;
   const hasMedia = media.value.length > 0;
   return (
-    <div class="app">
+    <div class={'app page-' + page.value}>
       <header class="topbar">
         <div class="brand">
           <span class="logo">
@@ -109,37 +151,7 @@ export function App() {
             aria-label="Titre du projet"
           />
         )}
-        <nav class="pages steps" aria-label="Étapes">
-          {PAGES.map((p, i) => {
-            const done = p.id === 'media' ? hasMedia : p.id === 'edit' ? hasClips : false;
-            const sub =
-              p.id === 'media'
-                ? hasMedia
-                  ? `${media.value.length} fichiers`
-                  : 'importer'
-                : p.id === 'edit'
-                  ? hasClips
-                    ? `${project.value.clips.length} plans · ${fmtShort(timeline.value.total)}`
-                    : 'créer le film'
-                  : 'fichier vidéo';
-            return (
-              <button
-                class={(page.value === p.id ? 'on' : '') + (done ? ' done' : '')}
-                disabled={p.id !== 'media' && !hasClips && !hasMedia}
-                onClick={() => {
-                  playing.value = false;
-                  page.value = p.id;
-                }}
-              >
-                <i class="step-n">{done && page.value !== p.id ? <Icon name="check" size={11} /> : i + 1}</i>
-                <span class="step-txt">
-                  <b>{p.label}</b>
-                  <small>{sub}</small>
-                </span>
-              </button>
-            );
-          })}
-        </nav>
+        <Steps cls="pages steps" />
         <div class="top-actions">
           <SaveIndicator />
           <button class="ibtn help-btn" title="Guide : où trouver chaque fonction" onClick={() => (guideOpen.value = true)}>
@@ -183,6 +195,7 @@ export function App() {
         {page.value === 'edit' && <EditPage />}
         {page.value === 'export' && <ExportPage />}
       </main>
+      <Steps cls="bottom-nav" />
       <ProjectsPanel />
       <Guide />
       <Toasts />
