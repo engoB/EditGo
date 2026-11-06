@@ -201,6 +201,9 @@ function DecodedPlayer({ m, onFail }: { m: MediaItem; onFail?: () => void }) {
           {fmtClock(t)} / {fmtClock(m.duration)}
         </span>
       </div>
+      <span class="mv-mode" title="Lecteur utilisé (diagnostic)">
+        Décodeur{play && ref.current ? ` · ${ref.current.dv.fps} i/s` : ''}
+      </span>
     </div>
   );
 }
@@ -245,6 +248,9 @@ function VideoView({ m }: { m: MediaItem }) {
           setFallback(true);
         }}
       />
+      <span class="mv-mode" title="Lecteur utilisé (diagnostic)">
+        Lecteur natif
+      </span>
     </div>
   );
 }

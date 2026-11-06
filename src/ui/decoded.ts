@@ -20,6 +20,13 @@ export class DecodedVideo {
   private pending: WrappedCanvas | null = null;
   private pumping = false;
   private gen = 0;
+  /** Temps source voulu pendant la lecture continue. */
+  private playT = 0;
+  private fresh = false;
+  /** Images affichées par seconde (diagnostic). */
+  fps = 0;
+  private fpsN = 0;
+  private fpsT = 0;
 
   constructor(
     file: File,
@@ -50,6 +57,13 @@ export class DecodedVideo {
     }
     this.ctx.drawImage(wc.canvas as CanvasImageSource, 0, 0, this.canvas.width, this.canvas.height);
     this.shown = wc.timestamp;
+    const now = performance.now();
+    this.fpsN++;
+    if (now - this.fpsT > 1000) {
+      this.fps = this.fpsT ? Math.round((this.fpsN * 1000) / (now - this.fpsT)) : 0;
+      this.fpsT = now;
+      this.fpsN = 0;
+    }
     this.onFrame();
   }
 
@@ -77,13 +91,16 @@ export class DecodedVideo {
 
   /** Lecture continue : à appeler à chaque image d'affichage avec le temps source courant. */
   update(t: number) {
+    this.playT = t;
     if (!this.ready) {
       this.want = t;
       return;
     }
-    const lagging = this.pending && this.pending.timestamp < t - 0.6;
-    if (!this.iter || t < this.iterFrom - 0.05 || lagging || (!this.pending && !this.pumping && this.shown >= 0 && t - this.shown > 1.2)) this.restart(t);
-    if (this.pending && this.pending.timestamp <= t) {
+    // redémarrage seulement pour un vrai saut (retour en arrière, ou très loin devant) :
+    // un simple retard se rattrape en sautant les images, sans repartir de l'image clé
+    const far = this.shown >= 0 && t - Math.max(this.shown, this.pending?.timestamp ?? -1) > 4;
+    if (!this.iter || t < this.iterFrom - 0.05 || far) this.restart(t);
+    if (this.pending && this.pending.timestamp <= t + 0.02) {
       const wc = this.pending;
       this.pending = null;
       this.draw(wc);
@@ -95,7 +112,8 @@ export class DecodedVideo {
     this.stop();
     const g = ++this.gen;
     this.iterFrom = t;
-    this.iter = this.sink!.frames(Math.max(0, t));
+    this.fresh = true;
+    this.iter = this.sink!.frames(Math.max(0, t), () => this.playT);
     void g;
     this.pump();
   }
@@ -114,8 +132,9 @@ export class DecodedVideo {
           return;
         }
         this.pending = r.value;
-        // première image après un redémarrage : affichage immédiat
-        if (this.shown < this.iterFrom - 0.1 || this.shown > this.iterFrom + 1) {
+        // première image après un redémarrage : affichage immédiat ; ensuite chaque image attend son heure
+        if (this.fresh) {
+          this.fresh = false;
           this.pending = null;
           this.draw(r.value);
           this.pump();

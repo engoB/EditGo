@@ -102,7 +102,8 @@ export class FrameReader {
   }
 
   /** Images successives à partir de l'instant `start` (relatif), en ordre de présentation. */
-  async *frames(start = 0): AsyncGenerator<Frame, void, unknown> {
+  /** `want` : instant (relatif) voulu à l'écran ; les images en retard sont jetées sans être dessinées. */
+  async *frames(start = 0, want?: () => number): AsyncGenerator<Frame, void, unknown> {
     const abs = start + this.offset;
     const key: EncodedPacket | null = (await this.sink.getKeyPacket(abs, { verifyKeyPackets: true })) ?? (await this.sink.getFirstKeyPacket());
     if (!key) return;
@@ -148,8 +149,9 @@ export class FrameReader {
         if (queue.length) {
           queue.sort((a, b) => a.timestamp - b.timestamp);
           const vf = queue.shift()!;
-          // images antérieures au point demandé : décodées mais pas rendues
-          if (vf.timestamp / 1e6 + (vf.duration ?? 40000) / 1e6 <= abs + 1e-4 && (queue.length || !ended)) {
+          // images antérieures au point demandé (ou déjà en retard sur la lecture) : décodées mais pas rendues
+          const limit = want ? Math.max(abs, want() + this.offset) : abs;
+          if (vf.timestamp / 1e6 + (vf.duration ?? 40000) / 1e6 <= limit + 1e-4 && (queue.length || !ended)) {
             vf.close();
             continue;
           }
