@@ -83,13 +83,27 @@ export async function probeCodecs(w: number, h: number) {
 }
 
 /** Fournisseur de sources pour l'export : décodage pleine définition, synchrone image par image. */
+const TIMEOUT = Symbol('timeout');
+/** Attend une promesse au plus `ms` millisecondes (les décodeurs matériels mobiles peuvent caler sans erreur). */
+async function within<T>(p: Promise<T>, ms: number): Promise<T | typeof TIMEOUT> {
+  let timer = 0;
+  const t = new Promise<typeof TIMEOUT>((r) => (timer = window.setTimeout(() => r(TIMEOUT), ms)));
+  try {
+    return await Promise.race([p, t]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 class ExportSources implements SourceProvider {
   private images: ImageCache;
   private videoIters = new Map<string, AsyncGenerator<WrappedCanvas | null, void, unknown>>();
+  /** Libération des ressources d'un plan (décodeur, fichier) dès qu'il est terminé. */
+  private releasers = new Map<string, () => void>();
+  /** Plans vidéo dont le décodage a calé : rendus avec leur vignette. */
+  stalled = new Set<string>();
   private videoFallback = new Map<string, HTMLVideoElement>();
   private current = new Map<string, SourceFrame | null>();
-  private inputs: Input[] = [];
-  private readers: FrameReader[] = [];
 
   constructor(
     private media: Map<string, MediaItem>,
@@ -121,13 +135,16 @@ class ExportSources implements SourceProvider {
     if (m.decode) {
       // lecture directe par le décodeur (MTS AVCHD, entrelacé…)
       const reader = await FrameReader.open(m.file!, maxSide);
-      this.readers.push(reader);
       it = reader.atTimestamps(this.timestampsFor(p)) as unknown as AsyncGenerator<WrappedCanvas | null, void, unknown>;
       this.videoIters.set(p.clip.id, it);
+      const it0 = it;
+      this.releasers.set(p.clip.id, () => {
+        void it0.return?.(undefined);
+        reader.dispose();
+      });
       return it;
     }
     const input = new Input({ source: new BlobSource(m.file!), formats: ALL_FORMATS });
-    this.inputs.push(input);
     const track = await input.getPrimaryVideoTrack();
     if (!track || !(await track.canDecode())) throw new Error('no-decode');
     const s = Math.min(1, maxSide / Math.max(track.displayWidth, track.displayHeight));
@@ -135,7 +152,40 @@ class ExportSources implements SourceProvider {
     const first = await track.getFirstTimestamp().catch(() => 0);
     it = sink.canvasesAtTimestamps(this.timestampsFor(p).map((t) => t + first));
     this.videoIters.set(p.clip.id, it);
+    const it0 = it;
+    this.releasers.set(p.clip.id, () => {
+      void it0.return?.(undefined);
+      input.dispose?.();
+    });
     return it;
+  }
+
+  /** Ferme les décodeurs des plans terminés (un téléphone n'en a que quelques-uns). */
+  private releaseFinished(t: number) {
+    for (const p of this.placed) {
+      if (p.end > t) continue;
+      const rel = this.releasers.get(p.clip.id);
+      if (rel) {
+        rel();
+        this.releasers.delete(p.clip.id);
+        this.videoIters.delete(p.clip.id);
+      }
+      const v = this.videoFallback.get(p.clip.id);
+      if (v) {
+        URL.revokeObjectURL(v.src);
+        v.removeAttribute('src');
+        this.videoFallback.delete(p.clip.id);
+      }
+    }
+  }
+
+  /** Libellé du plan en cours (affiché dans la progression). */
+  describe(t: number): string {
+    const st = stateAt(this.placed, t);
+    const p = st.b ?? st.a;
+    if (!p) return '';
+    const m = p.clip.mediaId ? this.media.get(p.clip.mediaId) : undefined;
+    return `plan ${p.index + 1}/${this.placed.length}${m ? ' · ' + m.name : ''}`;
   }
 
   private async seekFallback(p: Placed, m: MediaItem, t: number): Promise<SourceFrame | null> {
@@ -145,7 +195,17 @@ class ExportSources implements SourceProvider {
       v.muted = true;
       v.playsInline = true;
       v.src = URL.createObjectURL(m.file!);
-      await new Promise((r) => (v!.onloadeddata = r));
+      const ok = await within(
+        new Promise<boolean>((r) => {
+          v!.onloadeddata = () => r(true);
+          v!.onerror = () => r(false);
+        }),
+        8000,
+      );
+      if (ok !== true) {
+        URL.revokeObjectURL(v.src);
+        return null;
+      }
       this.videoFallback.set(p.clip.id, v);
     }
     const target = Math.min(m.duration - 0.01, p.clip.trimIn + (t - p.start) * p.clip.speed);
@@ -163,6 +223,7 @@ class ExportSources implements SourceProvider {
   async prepare(t: number, maxSide: number) {
     const st = stateAt(this.placed, t);
     this.current.clear();
+    this.releaseFinished(t);
     for (const p of [st.a, st.b]) {
       if (!p || !p.clip.mediaId) continue;
       if (p.clip.type === 'title' && p.clip.background !== 'blur') continue;
@@ -184,21 +245,38 @@ class ExportSources implements SourceProvider {
           this.current.set(p.clip.id, await this.thumbFrame(m));
           continue;
         }
-        const d = await this.images.load(m);
+        const r = await within(this.images.load(m), 20000);
+        const d = r === TIMEOUT ? null : r;
         this.current.set(p.clip.id, d ? { key: 'xi:' + m.id, image: d.image, w: d.w, h: d.h, dynamic: false } : await this.thumbFrame(m));
       } else {
         if (this.seekOnly || this.videoFallback.has(p.clip.id)) {
           this.current.set(p.clip.id, await this.seekFallback(p, m, t));
           continue;
         }
+        if (this.stalled.has(p.clip.id)) {
+          this.current.set(p.clip.id, this.lastFrame.get(p.clip.id) ?? (await this.thumbFrame(m)));
+          continue;
+        }
         try {
-          const it = await this.videoIter(p, m, maxSide);
-          const r = await it.next();
+          const itR = await within(this.videoIter(p, m, maxSide), 15000);
+          if (itR === TIMEOUT) throw new Error('stall');
+          const r = await within(itR.next(), 10000);
+          if (r === TIMEOUT) {
+            // décodeur figé : on libère et on continue avec la dernière image (ou la vignette)
+            this.stalled.add(p.clip.id);
+            this.releasers.get(p.clip.id)?.();
+            this.releasers.delete(p.clip.id);
+            this.fallbacks.add(m.id);
+            this.current.set(p.clip.id, this.lastFrame.get(p.clip.id) ?? (await this.thumbFrame(m)));
+            continue;
+          }
           const wc = r.done ? null : r.value;
           if (wc) this.current.set(p.clip.id, { key: 'xv:' + p.clip.id, image: wc.canvas as TexImageSource, w: wc.canvas.width, h: wc.canvas.height, dynamic: true });
           else this.current.set(p.clip.id, this.lastFrame.get(p.clip.id) ?? (await this.thumbFrame(m)));
         } catch {
-          this.current.set(p.clip.id, (await this.seekFallback(p, m, t).catch(() => null)) ?? (await this.thumbFrame(m)));
+          const f = (await within(this.seekFallback(p, m, t).catch(() => null), 10000)) as SourceFrame | null | typeof TIMEOUT;
+          if (f === TIMEOUT || !f) this.stalled.add(p.clip.id);
+          this.current.set(p.clip.id, f && f !== TIMEOUT ? f : await this.thumbFrame(m));
         }
         const cur = this.current.get(p.clip.id);
         if (cur) this.lastFrame.set(p.clip.id, cur);
@@ -247,10 +325,9 @@ class ExportSources implements SourceProvider {
 
   dispose() {
     this.images.clear();
-    for (const it of this.videoIters.values()) void it.return?.();
+    for (const rel of this.releasers.values()) rel();
+    this.releasers.clear();
     for (const v of this.videoFallback.values()) URL.revokeObjectURL(v.src);
-    for (const i of this.inputs) i.dispose?.();
-    for (const r of this.readers) r.dispose();
   }
 }
 
@@ -343,6 +420,7 @@ export async function runExport(opts: {
   }
   output.setMetadataTags({ title: project.title, date: new Date(), comment: 'Créé avec EditGo' });
 
+  let audioGaps = 0;
   try {
     await output.start();
     // son mixé par tranches de 30 s, au fil du rendu des images (mémoire constante)
@@ -354,8 +432,11 @@ export async function runExport(opts: {
       if (!audioSource) return;
       while (audioDone < totalSamples && audioDone / SR < until) {
         const n = Math.min(CHUNK, totalSamples - audioDone);
-        const buf = await mixAudioChunk({ project, media, placed, total, music: opts.music, s0: audioDone / SR, n, sampleRate: SR });
-        await audioSource.add(buf);
+        const mixed = await within(mixAudioChunk({ project, media, placed, total, music: opts.music, s0: audioDone / SR, n, sampleRate: SR }), 60000);
+        // tranche impossible à mixer (décodage figé) : silence plutôt que blocage
+        const buf = mixed === TIMEOUT ? new AudioBuffer({ length: n, numberOfChannels: 2, sampleRate: SR }) : mixed;
+        if (mixed === TIMEOUT) audioGaps++;
+        if ((await within(audioSource.add(buf), 60000)) === TIMEOUT) throw new Error('L’encodeur audio de l’appareil ne répond plus. Réessayez sans le son ou au format WebM.');
         audioDone += n;
       }
       if (audioDone >= totalSamples) {
@@ -384,11 +465,12 @@ export async function runExport(opts: {
       }
       comp.retainOnly(sources.activeKeys());
       out2d.drawImage(comp.canvas as HTMLCanvasElement, 0, 0, W, H);
-      await videoSource.add(t, dt);
+      if ((await within(videoSource.add(t, dt), 45000)) === TIMEOUT)
+        throw new Error(`L’encodeur vidéo de l’appareil ne répond plus (image ${i + 1}). Réessayez en HD 720p, ou au format WebM.`);
       const now = performance.now();
       if (now - lastUi > 120 || i === frames - 1) {
         lastUi = now;
-        opts.onProgress(0.04 + 0.94 * ((i + 1) / frames), `Image ${i + 1} / ${frames}`, canvas);
+        opts.onProgress(0.04 + 0.94 * ((i + 1) / frames), `Image ${i + 1} / ${frames} · ${sources.describe(t)}`, canvas);
         await new Promise((r) => setTimeout(r, 0));
       }
     }
@@ -412,7 +494,8 @@ export async function runExport(opts: {
     savedTo: dest.kind === 'stream' ? dest.where : undefined,
     fileName: fileNameFor(project, job),
     warnings: [
-      ...(sources.fallbacks.size ? [`${sources.fallbacks.size} média(s) introuvable(s) ou illisible(s) rendu(s) avec leur vignette`] : []),
+      ...(audioGaps ? [`${audioGaps * 30} s de son n’ont pas pu être mixées (silence à la place)`] : []),
+      ...(sources.fallbacks.size ? [`${sources.fallbacks.size} média(s) introuvable(s), illisible(s) ou dont le décodage a calé, rendu(s) avec leur vignette`] : []),
     ],
     codec: CODEC_LABEL[vcodec] + (acodec ? ` + ${CODEC_LABEL[acodec]}${abitrate ? ' ' + abitrate / 1000 + ' kbit/s' : ''}` : job.audio ? ' (sans son : aucun encodeur audio)' : ''),
     seconds: (performance.now() - t0) / 1000,
