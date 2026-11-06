@@ -8,6 +8,19 @@ import { prefetchModules, resumeAfterUpdate } from './lazy';
 import { updateReady } from './state/store';
 
 render(<App />, document.getElementById('app')!);
+
+// Application plein écran : pas de zoom par pincement ni double-tap (iOS ignore user-scalable=no).
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+let lastTouchEnd = 0;
+document.addEventListener(
+  'touchend',
+  (e) => {
+    const now = Date.now();
+    if (now - lastTouchEnd < 300 && !(e.target as HTMLElement).closest('input, textarea, select')) e.preventDefault();
+    lastTouchEnd = now;
+  },
+  { passive: false },
+);
 void loadTitleFonts();
 startAutosave();
 void resumeAfterUpdate();

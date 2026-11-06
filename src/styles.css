@@ -3680,3 +3680,73 @@ kbd {
   gap: 6px;
   justify-content: flex-end;
 }
+
+/* ---------- Mobile : plein écran, zones système, pas de zoom ---------- */
+html,
+body {
+  touch-action: pan-x pan-y;
+  overflow: hidden;
+  width: 100%;
+}
+.app {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  /* heure, réseau, batterie, encoche et barre d'accueil */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+button,
+a,
+input,
+label {
+  touch-action: manipulation;
+}
+.topbar {
+  min-width: 0;
+  overflow: hidden;
+}
+.toasts {
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+}
+.modal-back {
+  padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+}
+.mv {
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+@media (max-width: 1020px) {
+  /* iOS zoome automatiquement sur un champ en dessous de 16 px */
+  input,
+  select,
+  textarea,
+  .input {
+    font-size: 16px;
+  }
+}
+@media (max-width: 640px) {
+  .topbar {
+    gap: 4px;
+    padding: 0 8px;
+  }
+  .brand-name,
+  .help-btn span,
+  .save-ind .save-txt,
+  .top-actions .ibtn span {
+    display: none;
+  }
+  .top-actions {
+    gap: 2px;
+  }
+  .top-actions .btn-primary {
+    padding: 0 9px;
+  }
+  .pages.steps {
+    margin: 0 auto 0 4px;
+  }
+  .save-ind {
+    padding: 4px;
+  }
+}

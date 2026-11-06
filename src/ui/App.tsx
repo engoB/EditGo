@@ -153,7 +153,7 @@ export function App() {
           <button class="ibtn" title="Annuler (Ctrl+Z)" disabled={!canUndo()} onClick={undo}>
             <Icon name="undo" size={16} />
           </button>
-          <button class="ibtn" title="Rétablir (Ctrl+Maj+Z)" disabled={!canRedo()} onClick={redo}>
+          <button class="ibtn hide-sm" title="Rétablir (Ctrl+Maj+Z)" disabled={!canRedo()} onClick={redo}>
             <Icon name="redo" size={16} />
           </button>
           {hasMedia && page.value !== 'export' && (
