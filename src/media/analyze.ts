@@ -2,6 +2,7 @@
 // score de qualité et point d'intérêt (pour le cadrage Ken Burns).
 import type { FocusPoint, ImportOptions, MediaItem } from '../types';
 import { readExif, type ExifInfo } from './exif';
+import { lazy } from '../lazy';
 import { applyBest, collectDates } from './redate';
 import { NEEDS_DECODE, ensureDecoder } from './codecs';
 import { FrameReader } from './framereader';
@@ -261,7 +262,7 @@ async function analyzeVideo(file: File, item: MediaItem) {
   let fw = 0,
     fh = 0;
   try {
-    const { ALL_FORMATS, BlobSource, CanvasSink, Input } = await import('mediabunny');
+    const { ALL_FORMATS, BlobSource, CanvasSink, Input } = await lazy(() => import('mediabunny'));
     const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
     const vt = await input.getPrimaryVideoTrack();
     const at = await input.getPrimaryAudioTrack();

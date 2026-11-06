@@ -2,6 +2,7 @@
 // (contourne la lecture erronée des vidéos entrelacées 1080i des caméscopes AVCHD).
 // Les temps exposés sont relatifs au début de la vidéo (0 = première image).
 import type { EncodedPacket, EncodedPacketSink, Input } from 'mediabunny';
+import { lazy } from '../lazy';
 
 export interface Frame {
   canvas: HTMLCanvasElement;
@@ -25,7 +26,7 @@ export class FrameReader {
   ) {}
 
   static async open(file: File, maxSide = 1280): Promise<FrameReader> {
-    const mb = await import('mediabunny');
+    const mb = await lazy(() => import('mediabunny'));
     const input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
     const vt = await input.getPrimaryVideoTrack();
     if (!vt) throw new Error('Aucune piste vidéo');

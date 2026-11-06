@@ -28,6 +28,7 @@ import { buildFrame, type SourceProvider } from '../render/frame';
 import { ImageCache } from '../render/images';
 import { layout, stateAt, type Placed } from '../story/timeline';
 import { mixAudioChunk } from '../audio/mix';
+import { lazy } from '../lazy';
 import { FrameReader } from '../media/framereader';
 
 export type Container = 'mp4' | 'webm';
@@ -289,7 +290,7 @@ export async function runExport(opts: {
     // pas d'encodeur audio dans ce navigateur (certains iPhone) : encodeur AAC de secours, chargé à la demande
     if (!acodec && job.container === 'mp4') {
       try {
-        const { registerAacEncoder } = await import('@mediabunny/aac-encoder');
+        const { registerAacEncoder } = await lazy(() => import('@mediabunny/aac-encoder'));
         registerAacEncoder();
         for (const br of [192_000, 160_000, 128_000]) {
           if (await canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: 48000, bitrate: br }).catch(() => false)) {

@@ -4,11 +4,14 @@ import './styles.css';
 import { App } from './ui/App';
 import { loadTitleFonts } from './render/titles';
 import { startAutosave } from './state/persist';
+import { prefetchModules, resumeAfterUpdate } from './lazy';
 import { updateReady } from './state/store';
 
 render(<App />, document.getElementById('app')!);
 void loadTitleFonts();
 startAutosave();
+void resumeAfterUpdate();
+prefetchModules();
 
 // Service worker : application utilisable hors ligne après la première visite.
 if (!__SINGLE__ && 'serviceWorker' in navigator && location.protocol === 'https:') {
