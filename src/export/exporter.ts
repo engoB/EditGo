@@ -29,6 +29,7 @@ import { ImageCache } from '../render/images';
 import { layout, stateAt, type Placed } from '../story/timeline';
 import { mixAudioChunk } from '../audio/mix';
 import { lazy } from '../lazy';
+import { attachVideo, detachVideo } from '../media/videohost';
 import { FrameReader } from '../media/framereader';
 
 export type Container = 'mp4' | 'webm';
@@ -173,6 +174,7 @@ class ExportSources implements SourceProvider {
       const v = this.videoFallback.get(p.clip.id);
       if (v) {
         URL.revokeObjectURL(v.src);
+        detachVideo(v);
         v.removeAttribute('src');
         this.videoFallback.delete(p.clip.id);
       }
@@ -195,6 +197,7 @@ class ExportSources implements SourceProvider {
       v.muted = true;
       v.playsInline = true;
       v.src = URL.createObjectURL(m.file!);
+      attachVideo(v);
       const ok = await within(
         new Promise<boolean>((r) => {
           v!.onloadeddata = () => r(true);
@@ -204,6 +207,7 @@ class ExportSources implements SourceProvider {
       );
       if (ok !== true) {
         URL.revokeObjectURL(v.src);
+        detachVideo(v);
         return null;
       }
       this.videoFallback.set(p.clip.id, v);
@@ -327,7 +331,10 @@ class ExportSources implements SourceProvider {
     this.images.clear();
     for (const rel of this.releasers.values()) rel();
     this.releasers.clear();
-    for (const v of this.videoFallback.values()) URL.revokeObjectURL(v.src);
+    for (const v of this.videoFallback.values()) {
+      URL.revokeObjectURL(v.src);
+      detachVideo(v);
+    }
   }
 }
 

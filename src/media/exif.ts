@@ -17,6 +17,9 @@ export interface ExifInfo {
   height?: number;
   make?: string;
   model?: string;
+  /** Dimensions réelles de l'image codée (en-tête JPEG), avant orientation. */
+  sofWidth?: number;
+  sofHeight?: number;
 }
 
 const TAG_DATETIME_ORIGINAL = 0x9003;
@@ -152,6 +155,13 @@ async function readJpeg(file: Blob, info: ExifInfo) {
     }
     if (marker === 0xd9 || marker === 0xda) break;
     const size = head.getUint16(2);
+    // SOFn : vraies dimensions de l'image (les métadonnées EXIF peuvent dater d'avant une retouche)
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      const sof = new DataView(await file.slice(p + 5, p + 9).arrayBuffer());
+      info.sofHeight = sof.getUint16(0);
+      info.sofWidth = sof.getUint16(2);
+      break;
+    }
     if (marker === 0xe1 && size > 8) {
       const seg = await file.slice(p + 4, p + 2 + size).arrayBuffer();
       const v = new DataView(seg);

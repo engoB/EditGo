@@ -186,26 +186,31 @@ async function analyzePhoto(file: File, item: MediaItem): Promise<ExifInfo> {
   const exif = await readExif(file);
   if (exif.make || exif.model) item.camera = [exif.make, exif.model].filter(Boolean).join(' ').trim();
   let bmp: ImageBitmap | null = null;
-  // Grandes photos dont l'EXIF donne les dimensions : décodage direct en petite taille (bien plus rapide)
-  if (exif.width && exif.height && Math.max(exif.width, exif.height) > 1600) {
+  // Grandes photos JPEG : décodage direct en petite taille (bien plus rapide), proportions préservées.
+  // Les dimensions viennent de l'en-tête de l'image (SOF), pas de l'EXIF (souvent périmé après retouche).
+  const baseW = exif.sofWidth ?? 0,
+    baseH = exif.sofHeight ?? 0;
+  if (baseW && baseH && Math.max(baseW, baseH) > 1600) {
     const rot = (exif.orientation ?? 1) >= 5;
-    const W = rot ? exif.height : exif.width,
-      H = rot ? exif.width : exif.height;
-    const k = 720 / Math.max(W, H);
+    const W = rot ? baseH : baseW,
+      H = rot ? baseW : baseH;
     try {
       const small = await createImageBitmap(file, {
         imageOrientation: 'from-image',
-        resizeWidth: Math.round(W * k),
-        resizeHeight: Math.round(H * k),
+        ...(W >= H ? { resizeWidth: 720 } : { resizeHeight: 720 }),
         resizeQuality: 'medium',
       } as ImageBitmapOptions);
-      if (Math.abs(small.width / small.height - W / H) < 0.02) {
-        bmp = small;
-        item.width = W;
-        item.height = H;
-      } else small.close();
+      bmp = small;
+      item.width = W;
+      item.height = H;
+      // l'image décodée fait foi pour les proportions
+      if (Math.abs(small.width / small.height - W / H) > 0.01) {
+        const long = Math.max(W, H);
+        item.width = small.width >= small.height ? long : Math.round((long * small.width) / small.height);
+        item.height = small.width >= small.height ? Math.round((long * small.height) / small.width) : long;
+      }
     } catch {
-      /* repli : décodage complet */
+      bmp = null;
     }
   }
   if (!bmp) {

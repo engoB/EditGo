@@ -9,6 +9,7 @@ import { mediaMap, musicBuffer, playhead, playing, project, timeline } from '../
 import { applyMusicEnvelope, duckingSegments } from '../audio/envelope';
 import { ASPECTS } from '../presets';
 import { DecodedVideo } from './decoded';
+import { attachVideo, detachVideo } from '../media/videohost';
 import { extractAudio } from '../audio/mix';
 
 class PreviewSources implements SourceProvider {
@@ -76,8 +77,19 @@ class PreviewSources implements SourceProvider {
       v.muted = true;
       v.crossOrigin = 'anonymous';
       v.src = URL.createObjectURL(m.file!);
+      attachVideo(v);
       v.addEventListener('seeked', () => this.onReady());
       v.addEventListener('loadeddata', () => this.onReady());
+      // nouvelle image décodée : on redessine (sinon l'aperçu peut rester sur la première image)
+      const rvfc = (v as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number }).requestVideoFrameCallback?.bind(v);
+      const el = v;
+      if (rvfc) {
+        const tick = () => {
+          this.onReady();
+          if (el.isConnected) rvfc(tick);
+        };
+        rvfc(tick);
+      }
       // format refusé par le navigateur : bascule sur le décodage image par image
       v.addEventListener('error', () => {
         m.decode = true;
@@ -115,7 +127,7 @@ class PreviewSources implements SourceProvider {
     }
     for (const [id, v] of this.videos) {
       if (!keep.has(id)) {
-        v.pause();
+        detachVideo(v);
         URL.revokeObjectURL(v.src);
         v.removeAttribute('src');
         this.videos.delete(id);
@@ -195,6 +207,8 @@ export class Player {
 
   /** Son des vidéos décodées (MTS…) : extrait puis joué via Web Audio. */
   private decAudio = new Map<string, { buf: AudioBuffer | null; key: string }>();
+  /** Plans dont la vidéo a dû être lue sans son (le son est alors joué par Web Audio). */
+  private forcedMute = new Set<string>();
   private decNodes = new Map<string, { node: AudioBufferSourceNode; gain: GainNode }>();
 
   private ensureAudio(): AudioContext {
@@ -295,7 +309,16 @@ export class Player {
       const m = p.clip.mediaId ? media.get(p.clip.mediaId) : undefined;
       if (m?.kind !== 'video' || !m.file) continue;
       activeIds.add(p.clip.id);
-      if (m.decode) {
+      if (m.decode || this.forcedMute.has(p.clip.id)) {
+        if (!m.decode) {
+          // vidéo lue sans son (refus du navigateur) : l'image avance, le son passe par Web Audio
+          const v = this.src.video(p, m);
+          const target = sourceTime(p, t);
+          v.muted = true;
+          v.playbackRate = p.clip.speed;
+          if (force || Math.abs(v.currentTime - target) > 0.3) v.currentTime = target;
+          if (v.paused) void v.play().catch(() => null);
+        }
         if (!m.hasAudio || p.clip.volume <= 0.01) continue;
         const buf = this.loadDecAudio(p, m);
         if (buf && !this.decNodes.has(p.clip.id)) {
@@ -327,7 +350,13 @@ export class Player {
       v.volume = Math.max(0, Math.min(1, p.clip.volume * fadeIn * fadeOut));
       v.muted = p.clip.volume <= 0.01 || !m.hasAudio;
       if (force || Math.abs(v.currentTime - target) > 0.3) v.currentTime = target;
-      if (v.paused) void v.play().catch(() => null);
+      if (v.paused)
+        void v.play().catch(() => {
+          // lecture avec le son refusée (iPhone hors toucher direct) : on relance sans le son
+          this.forcedMute.add(p.clip.id);
+          v.muted = true;
+          void v.play().catch(() => null);
+        });
     }
     for (const [id, v] of this.src.videos) if (!activeIds.has(id) && !v.paused) v.pause();
     for (const id of [...this.decNodes.keys()]) if (!activeIds.has(id)) this.stopDecAudio(id);

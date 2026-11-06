@@ -198,6 +198,11 @@ async function saveThumbs(items: MediaItem[]) {
   for (const m of todo) thumbSaved.add(m.id);
 }
 
+/** La vignette d'un média a changé : à réécrire au prochain enregistrement. */
+export function invalidateThumb(id: string) {
+  thumbSaved.delete(id);
+}
+
 async function coverOf(items: MediaItem[]): Promise<Blob | null> {
   const best = [...items].filter((m) => m.thumb && !m.duplicateOf && !m.similarTo && !m.error).sort((a, b) => b.score - a.score)[0];
   return best ? thumbBlob(best) : null;

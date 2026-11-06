@@ -3,6 +3,19 @@ import type { MediaItem } from '../types';
 
 export type Decoded = { image: ImageBitmap | HTMLCanvasElement | HTMLImageElement; w: number; h: number };
 
+/** Corrige les dimensions mémorisées si l'image décodée n'a pas les mêmes proportions. */
+function fixDims(item: MediaItem, w: number, h: number) {
+  if (!w || !h || Math.abs(w / h - item.width / Math.max(1, item.height)) < 0.01) return;
+  const long = Math.max(item.width, item.height);
+  if (w >= h) {
+    item.width = long;
+    item.height = Math.round((long * h) / w);
+  } else {
+    item.height = long;
+    item.width = Math.round((long * w) / h);
+  }
+}
+
 export async function decodeImage(item: MediaItem, maxSide: number): Promise<Decoded> {
   if (item.demo) {
     const s = Math.min(1, maxSide / Math.max(item.width, item.height));
@@ -12,34 +25,34 @@ export async function decodeImage(item: MediaItem, maxSide: number): Promise<Dec
   if (!item.file) throw new Error('Fichier absent');
   const file = item.file;
   const s = Math.min(1, maxSide / Math.max(item.width, item.height));
-  const tw = Math.max(1, Math.round(item.width * s));
-  const th = Math.max(1, Math.round(item.height * s));
   if (s < 1) {
     try {
+      // une seule dimension imposée : le navigateur garde les vraies proportions de l'image
+      const landscape = item.width >= item.height;
       const bmp = await createImageBitmap(file, {
         imageOrientation: 'from-image',
-        resizeWidth: tw,
-        resizeHeight: th,
+        ...(landscape ? { resizeWidth: Math.max(1, Math.round(item.width * s)) } : { resizeHeight: Math.max(1, Math.round(item.height * s)) }),
         resizeQuality: 'high',
       } as ImageBitmapOptions);
-      // Contrôle : certains navigateurs redimensionnent avant d'appliquer l'orientation EXIF.
-      const okRatio = Math.abs(bmp.width / bmp.height - item.width / item.height) < 0.02;
-      if (okRatio) return { image: bmp, w: bmp.width, h: bmp.height };
+      fixDims(item, bmp.width, bmp.height);
+      if (Math.max(bmp.width, bmp.height) <= maxSide * 1.05) return { image: bmp, w: bmp.width, h: bmp.height };
       bmp.close();
     } catch {
       /* repli */
     }
   }
   const full = await createImageBitmap(file, { imageOrientation: 'from-image' } as ImageBitmapOptions);
-  if (s >= 1) return { image: full, w: full.width, h: full.height };
+  fixDims(item, full.width, full.height);
+  const k = Math.min(1, maxSide / Math.max(full.width, full.height));
+  if (k >= 1) return { image: full, w: full.width, h: full.height };
   const c = document.createElement('canvas');
-  c.width = tw;
-  c.height = th;
+  c.width = Math.max(1, Math.round(full.width * k));
+  c.height = Math.max(1, Math.round(full.height * k));
   const g = c.getContext('2d')!;
   g.imageSmoothingQuality = 'high';
-  g.drawImage(full, 0, 0, tw, th);
+  g.drawImage(full, 0, 0, c.width, c.height);
   full.close();
-  return { image: c, w: tw, h: th };
+  return { image: c, w: c.width, h: c.height };
 }
 
 export class ImageCache {
@@ -107,4 +120,9 @@ export function thumbImage(item: MediaItem): HTMLImageElement | null {
     thumbs.set(item.id, im);
   }
   return im.complete && im.naturalWidth ? im : null;
+}
+
+/** Oublie la vignette mise en cache (elle vient d'être régénérée). */
+export function forgetThumb(id: string) {
+  thumbs.delete(id);
 }

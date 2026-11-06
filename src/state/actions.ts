@@ -3,7 +3,9 @@ import type { MediaItem, MediaSource, Project, ThemeId } from '../types';
 import { uid } from '../util';
 import { analyzeFile, markDuplicates, mediaKindOf } from '../media/analyze';
 import { junkReason, readSidecar, refineDates, sidecarKey } from '../media/dates';
-import { DATES_VERSION, applyBest, collectDates, sourceOfKey } from '../media/redate';
+import { DATES_VERSION, applyBest, collectDates, repairPhoto, sourceOfKey } from '../media/redate';
+import { forgetThumb } from '../render/images';
+import { invalidateThumb } from './persist';
 import { ensurePermission, groupByRoot, newSource, pickFolderHandle, scanHandle, type ScanEntry } from '../media/sources';
 import { makeDemo } from '../media/demo';
 import { buildStory, usable } from '../story/auto';
@@ -638,17 +640,26 @@ export async function rereadDates(onlyMissing: boolean) {
   const list = media.value.filter((m) => m.file && !m.demo && (!onlyMissing || !m.dates || (m.datesV ?? 1) < DATES_VERSION));
   if (!list.length) return;
   importing.value = { done: 0, total: list.length, label: 'Relecture des dates…' };
-  let changed = 0;
+  let changed = 0,
+    repaired = 0;
   for (let i = 0; i < list.length; i++) {
     const m = list[i];
     try {
+      const before = m.datesV ?? 1;
       if (applyBest(m, await collectDates(m.file!, m.kind))) changed++;
+      // projets antérieurs : photos aux proportions faussées (vignette et dimensions réparées)
+      if (before < 3 && (await repairPhoto(m))) {
+        repaired++;
+        forgetThumb(m.id);
+        invalidateThumb(m.id);
+      }
     } catch {
       /* fichier illisible */
     }
     if (i % 20 === 0) importing.value = { done: i, total: list.length, label: 'Relecture des dates…' };
   }
   importing.value = null;
+  if (repaired) toast(`${repaired} photo(s) aux proportions faussées réparée(s).`, 'ok', 6000);
   afterDateChange(changed ? `Dates relues dans les fichiers : ${changed} média(s) redaté(s).` : onlyMissing ? undefined : 'Dates relues : aucune modification.');
 }
 
