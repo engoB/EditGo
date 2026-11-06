@@ -3669,3 +3669,14 @@ kbd {
 .app:has(.update-banner):has(.access-banner:not(.update-banner)) {
   grid-template-rows: 52px auto auto 1fr;
 }
+
+.mobile-tip {
+  display: flex;
+  gap: 6px;
+  color: var(--text2);
+}
+.done-act {
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}

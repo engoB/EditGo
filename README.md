@@ -61,6 +61,7 @@ Version autonome en un seul fichier : **https://engob.github.io/EditGo/editgo-ho
 - Annuler / rétablir, raccourcis (Espace, ← →, Maj+← →, Suppr, Ctrl+Z).
 
 **Export**
+- Sur téléphone : écran maintenu allumé pendant l'export, fichier écrit sur le disque du navigateur (y compris Safari / iPhone, via un worker), encodeur AAC de secours si l'appareil n'en a pas (`@mediabunny/aac-encoder`, chargé à la demande), bouton « Enregistrer la vidéo » (feuille de partage → Photos) à la fin.
 - Écriture directe sur le disque, au fil de l'eau : le film est enregistré dans le dossier choisi (Chrome, Edge) ou dans l'espace disque du navigateur puis téléchargé ; aucune limite de mémoire vive, même pour un film d'une heure. Son mixé par tranches de 30 s, musique générée en boucle sans couture.
 - Vérification préalable : les médias dont le fichier n'est pas accessible sont signalés (avec « Autoriser l'accès aux dossiers »). Aucune image noire : en dernier recours la vignette est utilisée et signalée ; perte du contexte graphique récupérée automatiquement ; mémoire graphique libérée au fil de l'export.
 - Rendu image par image (non temps réel) via WebCodecs : MP4 (H.264, sinon HEVC / VP9 / AV1) ou WebM (VP9 / AV1), son AAC ou Opus.

@@ -8,6 +8,7 @@ const loadExporter = () => import('../export/exporter');
 import { Icon } from './icons';
 import { Segmented, Toggle } from './controls';
 import { downloadBlob, saveFile, fmtBytes, fmtDuration } from '../util';
+import { canUseOpfsWorker, opfsWorkerStream } from '../export/opfsWriter';
 
 interface Done {
   savedTo?: string;
@@ -29,7 +30,9 @@ export function ExportPage() {
   const [fps, setFps] = useState(30);
   const [quality, setQuality] = useState<QualityLevel>('high');
   const [audio, setAudio] = useState(true);
-  const canPickDir = typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function';
+  const isMobile = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  const canShareFiles = typeof navigator.canShare === 'function';
+  const canPickDir = !isMobile && typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function';
   const [toFolder, setToFolder] = useState(true);
   const [codecs, setCodecs] = useState<{ mp4: string | null; webm: string | null } | null>(null);
   const [run, setRun] = useState<{ job: number; jobs: number; label: string; frac: number; stage: string; eta: string } | null>(null);
@@ -73,6 +76,22 @@ export function ExportPage() {
     if (audio && p.music.kind !== 'none' && !musicBuffer.value) await prepareMusic();
     const ac = new AbortController();
     abort.current = ac;
+    // écran maintenu allumé pendant l'export (sinon le téléphone suspend la page)
+    let lock: WakeLockSentinel | null = null;
+    const keepAwake = async () => {
+      try {
+        if (document.visibilityState === 'visible') lock = (await navigator.wakeLock?.request('screen')) ?? null;
+      } catch {
+        lock = null;
+      }
+    };
+    let wasHidden = false;
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void keepAwake();
+      else wasHidden = true;
+    };
+    await keepAwake();
+    document.addEventListener('visibilitychange', onVis);
     for (let i = 0; i < jobs.length; i++) {
       const job = jobs[i];
       const t0 = performance.now();
@@ -98,6 +117,11 @@ export function ExportPage() {
             }
             const fh = await ex.getFileHandle(name, { create: true });
             if ('createWritable' in fh) dest = { kind: 'stream', writable: await fh.createWritable(), getFile: () => fh.getFile(), where: '' };
+            else if (canUseOpfsWorker()) {
+              // Safari / iPhone : écriture sur disque depuis un worker
+              const ds = await opfsWorkerStream(name);
+              dest = { kind: 'stream', writable: ds.writable, getFile: ds.getFile, where: '' };
+            }
           }
         } catch {
           dest = { kind: 'buffer' };
@@ -126,7 +150,10 @@ export function ExportPage() {
         const savedTo = res.savedTo || undefined;
         setDone((d) => [{ name: res.fileName, blob: res.blob, url, codec: res.codec, seconds: res.seconds, label: job.label, savedTo }, ...d]);
         if (savedTo) toast(`Film enregistré : ${savedTo}`, 'ok', 9000);
-        else {
+        else if (isMobile) {
+          // sur téléphone, l'enregistrement doit être déclenché par un toucher
+          toast(`Film prêt : touchez « ${canShareFiles ? 'Enregistrer la vidéo' : 'Télécharger'} » ci-dessous.`, 'ok', 9000);
+        } else {
           saveFile(res.blob, res.fileName);
           toast(`Export terminé : ${res.fileName}`, 'ok', 5000);
         }
@@ -137,6 +164,9 @@ export function ExportPage() {
         break;
       }
     }
+    document.removeEventListener('visibilitychange', onVis);
+    void (lock as WakeLockSentinel | null)?.release().catch(() => null);
+    if (wasHidden) toast('L’export a été ralenti pendant que l’app était en arrière-plan : gardez-la affichée pendant l’export.', 'warn', 8000);
     setRun(null);
     abort.current = null;
   };
@@ -309,6 +339,11 @@ export function ExportPage() {
             </button>
           </>
         )}
+        {isMobile && !run && (
+          <p class="side-note mobile-tip">
+            <Icon name="info" size={13} /> Sur téléphone : gardez l’app affichée pendant l’export (l’écran reste allumé). À la fin, touchez « Enregistrer la vidéo » pour la mettre dans Photos.
+          </p>
+        )}
         <p class="side-note">
           Le rendu est calculé image par image sur votre appareil (aucun envoi en ligne). Gardez cet onglet ouvert pendant l’export.
           {canPickDir && toFolder ? ' Au lancement, choisissez le dossier où écrire le film.' : ' Le fichier sera proposé au téléchargement à la fin.'}
@@ -327,11 +362,13 @@ export function ExportPage() {
                   </small>
                 </div>
                 <div class="done-act">
-                  <button class="ibtn" title="Télécharger" onClick={() => saveFile(d.blob, d.name)}>
-                    <Icon name="download" size={16} />
-                  </button>
-                  <button class="ibtn" title="Partager / enregistrer dans Photos" onClick={() => share(d)}>
-                    <Icon name="share" size={16} />
+                  {canShareFiles && (
+                    <button class="btn btn-primary btn-sm" onClick={() => share(d)}>
+                      <Icon name="share" size={15} /> {isMobile ? 'Enregistrer la vidéo' : 'Partager'}
+                    </button>
+                  )}
+                  <button class={'btn btn-sm ' + (canShareFiles ? 'btn-ghost' : 'btn-primary')} onClick={() => saveFile(d.blob, d.name)}>
+                    <Icon name="download" size={15} /> Télécharger
                   </button>
                 </div>
               </div>

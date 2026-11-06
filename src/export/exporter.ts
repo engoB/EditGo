@@ -36,7 +36,7 @@ export type QualityLevel = 'standard' | 'high' | 'max';
 /** Destination de l'export : fichier sur disque (flux) ou mémoire (courts exports). */
 export type ExportDest =
   | { kind: 'buffer' }
-  | { kind: 'stream'; writable: FileSystemWritableFileStream; getFile: () => Promise<File>; where: string };
+  | { kind: 'stream'; writable: WritableStream<StreamTargetChunk> | FileSystemWritableFileStream; getFile: () => Promise<File>; where: string };
 
 export function fileNameFor(project: Project, job: ExportJob): string {
   const safe = (project.title || 'souvenir').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w-]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
@@ -286,6 +286,22 @@ export async function runExport(opts: {
       }
     }
     if (!acodec) acodec = await getFirstEncodableAudioCodec(AUDIO_PREFS[job.container], { numberOfChannels: 2, sampleRate: 48000 });
+    // pas d'encodeur audio dans ce navigateur (certains iPhone) : encodeur AAC de secours, chargé à la demande
+    if (!acodec && job.container === 'mp4') {
+      try {
+        const { registerAacEncoder } = await import('@mediabunny/aac-encoder');
+        registerAacEncoder();
+        for (const br of [192_000, 160_000, 128_000]) {
+          if (await canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: 48000, bitrate: br }).catch(() => false)) {
+            acodec = 'aac';
+            abitrate = br;
+            break;
+          }
+        }
+      } catch {
+        /* encodeur indisponible : export sans son */
+      }
+    }
     if (!acodec) opts.onProgress(0, 'Aucun encodeur audio disponible : export sans son');
   }
 
