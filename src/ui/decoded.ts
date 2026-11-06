@@ -25,13 +25,14 @@ export class DecodedVideo {
     file: File,
     private onFrame: () => void,
     maxSide = 1280,
+    containerFirst = false,
   ) {
-    void this.init(file, maxSide);
+    void this.init(file, maxSide, containerFirst);
   }
 
-  private async init(file: File, maxSide: number) {
+  private async init(file: File, maxSide: number, containerFirst: boolean) {
     try {
-      const reader = await FrameReader.open(file, maxSide);
+      const reader = await FrameReader.open(file, maxSide, containerFirst);
       this.dispose_ = () => reader.dispose();
       this.sink = reader;
       this.ready = true;

@@ -4232,3 +4232,28 @@ label {
 .cb-txt b {
   white-space: nowrap;
 }
+
+/* Export sur téléphone : la ligne du fichier exporté élargissait toute la page */
+@media (max-width: 1020px) {
+  .export-page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .export-page > * {
+    min-width: 0;
+  }
+  .main {
+    overflow-x: hidden;
+  }
+  .done {
+    flex-wrap: wrap;
+  }
+  .done-act {
+    flex: 1 1 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .done-act .btn {
+    height: 44px;
+    justify-content: center;
+  }
+}

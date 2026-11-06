@@ -35,6 +35,8 @@ export async function extractAudio(file: File, start: number, end: number): Prom
     return out;
   } catch {
     try {
+      // décodage du fichier entier : seulement s'il tient raisonnablement en mémoire (téléphones)
+      if (file.size > 400 * 1024 * 1024) return null;
       const ctx = new OfflineAudioContext(2, 48000, 48000);
       const full = await ctx.decodeAudioData(await file.arrayBuffer());
       const sr = full.sampleRate;

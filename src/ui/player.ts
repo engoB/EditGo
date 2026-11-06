@@ -11,6 +11,7 @@ import { ASPECTS } from '../presets';
 import { DecodedVideo } from './decoded';
 import { attachVideo, detachVideo } from '../media/videohost';
 import { extractAudio } from '../audio/mix';
+import { decoderFailed, useDecoder } from '../media/playback';
 
 class PreviewSources implements SourceProvider {
   images = new ImageCache(1920, 24);
@@ -33,8 +34,15 @@ class PreviewSources implements SourceProvider {
       return th0 ? { key: 't:' + m.id, image: th0, w: th0.naturalWidth, h: th0.naturalHeight, dynamic: false } : null;
     }
     const target = sourceTime(p, t);
-    if (m.decode) {
+    if (useDecoder(m)) {
       const dv = this.decodedFor(p, m);
+      if (dv.failed && !m.decode) {
+        // décodeur indisponible pour ce fichier : lecture par la balise <video>
+        decoderFailed(m);
+        dv.dispose();
+        this.decoded.delete(p.clip.id);
+        return this.frame(p, m, t);
+      }
       if (playing.value) dv.update(target);
       else dv.seek(target);
       if (dv.shown >= 0) return { key: 'dv:' + p.clip.id, image: dv.canvas, w: dv.canvas.width, h: dv.canvas.height, dynamic: true };
@@ -62,7 +70,7 @@ class PreviewSources implements SourceProvider {
   decodedFor(p: Placed, m: MediaItem): DecodedVideo {
     let dv = this.decoded.get(p.clip.id);
     if (!dv) {
-      dv = new DecodedVideo(m.file!, () => this.onReady());
+      dv = new DecodedVideo(m.file!, () => this.onReady(), 1280, !m.decode);
       this.decoded.set(p.clip.id, dv);
     }
     return dv;
@@ -109,7 +117,7 @@ class PreviewSources implements SourceProvider {
         const x = media.get(id);
         if (x && !this.images.has(x.id)) void this.images.load(x).then(() => this.onReady());
       }
-      if (m?.kind === 'video' && m.file && m.decode && p.clip.type === 'media' && p.start > t && !playing.value) this.decodedFor(p, m).seek(p.clip.trimIn);
+      if (m?.kind === 'video' && m.file && useDecoder(m) && p.clip.type === 'media' && p.start > t && !playing.value) this.decodedFor(p, m).seek(p.clip.trimIn);
       else if (m?.kind === 'video' && m.file && p.clip.type === 'media' && p.start > t) {
         const v = this.video(p, m);
         if (!playing.value && Math.abs(v.currentTime - p.clip.trimIn) > 0.05 && !v.seeking) v.currentTime = p.clip.trimIn;
@@ -309,8 +317,9 @@ export class Player {
       const m = p.clip.mediaId ? media.get(p.clip.mediaId) : undefined;
       if (m?.kind !== 'video' || !m.file) continue;
       activeIds.add(p.clip.id);
-      if (m.decode || this.forcedMute.has(p.clip.id)) {
-        if (!m.decode) {
+      const dec = useDecoder(m);
+      if (dec || this.forcedMute.has(p.clip.id)) {
+        if (!dec) {
           // vidéo lue sans son (refus du navigateur) : l'image avance, le son passe par Web Audio
           const v = this.src.video(p, m);
           const target = sourceTime(p, t);
@@ -364,7 +373,7 @@ export class Player {
     for (const p of placed) {
       if (p.start < t || p.start > t + 6 || p.clip.type !== 'media') continue;
       const m = p.clip.mediaId ? media.get(p.clip.mediaId) : undefined;
-      if (m?.kind === 'video' && m.decode && m.file && m.hasAudio && p.clip.volume > 0.01) this.loadDecAudio(p, m);
+      if (m?.kind === 'video' && m.file && useDecoder(m) && m.hasAudio && p.clip.volume > 0.01) this.loadDecAudio(p, m);
     }
   }
 

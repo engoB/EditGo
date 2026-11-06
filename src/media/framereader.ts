@@ -25,7 +25,8 @@ export class FrameReader {
     private maxSide: number,
   ) {}
 
-  static async open(file: File, maxSide = 1280): Promise<FrameReader> {
+  /** `containerFirst` : essayer d'abord la configuration du conteneur (celle de l'export). */
+  static async open(file: File, maxSide = 1280, containerFirst = false): Promise<FrameReader> {
     const mb = await lazy(() => import('mediabunny'));
     const input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
     const vt = await input.getPrimaryVideoTrack();
@@ -33,9 +34,24 @@ export class FrameReader {
     const cfg = await vt.getDecoderConfig();
     if (!cfg) throw new Error('Codec vidéo inconnu');
     // dimensions laissées au décodeur : il les lit lui-même dans le flux
-    const config: VideoDecoderConfig = { codec: cfg.codec, description: cfg.description, colorSpace: cfg.colorSpace, optimizeForLatency: false };
-    const sup = await VideoDecoder.isConfigSupported(config);
-    if (!sup.supported) throw new Error('Codec vidéo non pris en charge par ce navigateur');
+    // (Safari exige parfois les dimensions ou refuse l'espace colorimétrique : essais successifs)
+    const base: VideoDecoderConfig = { codec: cfg.codec, description: cfg.description, optimizeForLatency: false };
+    const tries: VideoDecoderConfig[] = [
+      { ...base, colorSpace: cfg.colorSpace },
+      base,
+      { ...base, codedWidth: cfg.codedWidth ?? vt.codedWidth, codedHeight: cfg.codedHeight ?? vt.codedHeight },
+      cfg,
+    ];
+    if (containerFirst) tries.unshift(cfg);
+    let config: VideoDecoderConfig | null = null;
+    for (const c of tries) {
+      const sup = await VideoDecoder.isConfigSupported(c).catch(() => null);
+      if (sup?.supported) {
+        config = c;
+        break;
+      }
+    }
+    if (!config) throw new Error('Codec vidéo non pris en charge par ce navigateur');
     const r = new FrameReader(input, new mb.EncodedPacketSink(vt), config, maxSide);
     r.offset = await vt.getFirstTimestamp();
     r.duration = Math.max(0, (await vt.computeDuration()) - r.offset);

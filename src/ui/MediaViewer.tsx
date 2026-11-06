@@ -6,6 +6,7 @@ import { forceInclude, sameFolder, shiftFolderDates, toggleExcluded, useDateCand
 import { DATE_SOURCE_LABEL } from '../media/dates';
 import { DecodedVideo } from './decoded';
 import { extractAudio } from '../audio/mix';
+import { decoderFailed, useDecoder } from '../media/playback';
 import { Icon } from './icons';
 import { fmtBytes, fmtDuration } from '../util';
 
@@ -110,19 +111,23 @@ function PhotoView({ m }: { m: MediaItem }) {
 }
 
 /** Lecteur pour les vidéos que le navigateur ne lit pas nativement (MTS…). */
-function DecodedPlayer({ m }: { m: MediaItem }) {
+function DecodedPlayer({ m, onFail }: { m: MediaItem; onFail?: () => void }) {
   const host = useRef<HTMLDivElement>(null);
   const [t, setT] = useState(0);
   const [play, setPlay] = useState(false);
   const [status, setStatus] = useState('Décodage…');
   const ref = useRef<{ dv: DecodedVideo; audio: AudioContext | null; buf: AudioBuffer | null; node: AudioBufferSourceNode | null; t0: number; c0: number; raf: number } | null>(null);
   useEffect(() => {
-    const dv = new DecodedVideo(m.file!, () => setStatus(''), 1920);
+    const dv = new DecodedVideo(m.file!, () => setStatus(''), 1920, !m.decode);
     host.current!.appendChild(dv.canvas);
     const st = { dv, audio: null as AudioContext | null, buf: null as AudioBuffer | null, node: null as AudioBufferSourceNode | null, t0: 0, c0: 0, raf: 0 };
     ref.current = st;
     dv.seek(0);
-    const check = setInterval(() => dv.failed && setStatus('Cette vidéo ne peut pas être décodée par ce navigateur.'), 800);
+    const check = setInterval(() => {
+      if (!dv.failed) return;
+      if (onFail) onFail();
+      else setStatus('Cette vidéo ne peut pas être décodée par ce navigateur.');
+    }, 500);
     // son (vidéos de moins de 15 min)
     if (m.hasAudio && m.duration < 900) void extractAudio(m.file!, 0, m.duration).then((b) => (st.buf = b));
     return () => {
@@ -204,16 +209,30 @@ const fmtClock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 6
 
 function VideoView({ m }: { m: MediaItem }) {
   const [url, setUrl] = useState('');
-  const [fallback, setFallback] = useState(!!m.decode);
+  const [fallback, setFallback] = useState(useDecoder(m));
   useEffect(() => {
-    setFallback(!!m.decode);
+    setFallback(useDecoder(m));
     if (!m.file) return;
     const u = URL.createObjectURL(m.file);
     setUrl(u);
     return () => URL.revokeObjectURL(u);
   }, [m.id]);
   if (!m.file) return <div class="mv-photo">{m.thumb && <img src={m.thumb} alt="" />}</div>;
-  if (fallback) return <DecodedPlayer m={m} />;
+  if (fallback)
+    return (
+      <DecodedPlayer
+        key={m.id}
+        m={m}
+        onFail={
+          m.decode
+            ? undefined
+            : () => {
+                decoderFailed(m);
+                setFallback(false);
+              }
+        }
+      />
+    );
   return (
     <div class="mv-video">
       <video
