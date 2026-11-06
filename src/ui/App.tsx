@@ -1,5 +1,5 @@
 import { useEffect } from 'preact/hooks';
-import { canRedo, canUndo, historyRev, media, page, playhead, playing, project, redo, removeClip, selectedClip, timeline, undo, updateProject, type Page } from '../state/store';
+import { updateReady, canRedo, canUndo, historyRev, media, page, playhead, playing, project, redo, removeClip, selectedClip, timeline, undo, updateProject, type Page } from '../state/store';
 import { autoCreate, nudgeClip, setVideoBounds } from '../state/actions';
 import { ProjectsPanel, SaveIndicator, projectsOpen } from './Projects';
 import { AccessBanner } from './Sources';
@@ -168,6 +168,15 @@ export function App() {
           )}
         </div>
       </header>
+      {updateReady.value && (
+        <div class="access-banner update-banner">
+          <Icon name="refresh" size={16} />
+          <span>Une nouvelle version d’EditGo est disponible. Votre projet est enregistré : rechargez pour l’utiliser.</span>
+          <button class="btn btn-primary btn-sm" onClick={() => location.reload()}>
+            Recharger
+          </button>
+        </div>
+      )}
       <AccessBanner />
       <main class="main">
         {page.value === 'media' && <MediaPage />}

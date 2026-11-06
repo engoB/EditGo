@@ -46,6 +46,7 @@ export function Guide() {
         <div class="drawer-head">
           <h3>
             <Icon name="info" /> Guide
+            <small class="guide-ver">version du {new Date(__BUILD__).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</small>
           </h3>
           <button class="ibtn" onClick={() => (guideOpen.value = false)} aria-label="Fermer">
             <Icon name="x" />

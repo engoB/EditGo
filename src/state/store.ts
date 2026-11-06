@@ -47,6 +47,8 @@ export const timelineView = signal<'timeline' | 'storyboard'>('timeline');
 export const movedIds = signal<string[]>([]);
 /** Dates modifiées depuis la création du montage : proposer de le remettre dans l'ordre. */
 export const datesDirty = signal(false);
+/** Une nouvelle version de l'application est prête (recharger pour l'utiliser). */
+export const updateReady = signal(false);
 export const mobilePanel = signal<'viewer' | 'media' | 'inspector'>('viewer');
 
 export interface Toast {

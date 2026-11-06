@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
   const single = mode === 'single';
   return {
     base: './',
-    define: { __SINGLE__: JSON.stringify(single) },
+    define: { __SINGLE__: JSON.stringify(single), __BUILD__: JSON.stringify(new Date().toISOString()) },
     build: {
       outDir: single ? 'dist-single' : 'dist',
       target: 'es2022',
