@@ -7,6 +7,7 @@ import type { ImportOptions, MediaItem, MediaSource, Project } from '../types';
 import { ensurePermission, resolveInSource } from '../media/sources';
 import { importOpts, media, musicBuffer, musicFile, page, playhead, project, resetHistory, selectedClip, sources, timeline, defaultProject } from './store';
 import { demoDrawer } from '../media/demo';
+import { safeTransition } from '../presets';
 import { uid } from '../util';
 
 export interface ProjectMeta {
@@ -202,6 +203,11 @@ async function coverOf(items: MediaItem[]): Promise<Blob | null> {
   return best ? thumbBlob(best) : null;
 }
 
+/** Mise à niveau des anciens projets (transitions retirées → fondu enchaîné). */
+function migrateProject(p: Project): Project {
+  return { ...p, clips: p.clips.map((c) => ({ ...c, transition: safeTransition(c.transition) })) };
+}
+
 // ---------- API ----------
 export async function listProjects(): Promise<ProjectMeta[]> {
   try {
@@ -363,7 +369,7 @@ export async function openProject(id: string) {
   batch(() => {
     currentProjectId.value = id;
     media.value = items;
-    project.value = { ...defaultProject(), ...data.project, music: { ...defaultProject().music, ...data.project.music } };
+    project.value = migrateProject({ ...defaultProject(), ...data.project, music: { ...defaultProject().music, ...data.project.music } });
     importOpts.value = { ...DEFAULT_OPTS, ...data.importOpts };
     sources.value = srcs;
     musicFile.value = mfile;
@@ -494,7 +500,7 @@ export async function importProjectFile(file: File): Promise<number> {
   }
   batch(() => {
     media.value = items;
-    project.value = { ...defaultProject(), ...body.project };
+    project.value = migrateProject({ ...defaultProject(), ...body.project });
     importOpts.value = body.importOpts ?? importOpts.value;
     page.value = body.project?.clips?.length ? 'edit' : 'media';
   });

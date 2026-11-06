@@ -1320,12 +1320,6 @@ input[type='range']::-moz-range-thumb {
   background: linear-gradient(90deg, #3b6fb6, #e08a4a);
   filter: blur(2px);
 }
-.tp-zoom {
-  background: radial-gradient(circle, #e08a4a 30%, #3b6fb6 32%);
-}
-.tp-whip {
-  background: repeating-linear-gradient(90deg, #3b6fb6 0 3px, #e08a4a 3px 6px);
-}
 .tp-push {
   background: linear-gradient(90deg, #3b6fb6 60%, #e08a4a 60%);
 }
@@ -1334,9 +1328,6 @@ input[type='range']::-moz-range-thumb {
 }
 .tp-filmBurn {
   background: radial-gradient(circle at 60% 50%, #fff3c4, #ff7a1a 35%, #5a2a10 70%);
-}
-.tp-iris {
-  background: radial-gradient(circle, #e08a4a 45%, #3b6fb6 47%);
 }
 .tp-ink {
   background: radial-gradient(circle at 30% 30%, #e08a4a 20%, transparent 22%), radial-gradient(circle at 70% 60%, #e08a4a 25%, transparent 27%), #3b6fb6;

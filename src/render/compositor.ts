@@ -54,7 +54,7 @@ export interface FrameDesc {
 }
 
 const TRANS_INDEX: Record<TransitionId, number> = {
-  cut: 0, fade: 1, dipBlack: 2, dipWhite: 3, blur: 4, zoom: 5, whip: 6, push: 7, lightLeak: 8, filmBurn: 9, iris: 10, ink: 11,
+  cut: 0, fade: 1, dipBlack: 2, dipWhite: 3, blur: 4, push: 7, lightLeak: 8, filmBurn: 9, ink: 11,
 };
 const NEEDS_MIPS = new Set<TransitionId>(['blur']);
 
@@ -334,7 +334,7 @@ export class Compositor {
       gl.uniform1i(P.u.uA, 0);
       gl.uniform1i(P.u.uB, 1);
       gl.uniform1f(P.u.uMix, f.mix);
-      gl.uniform1i(P.u.uType, TRANS_INDEX[f.transition]);
+      gl.uniform1i(P.u.uType, TRANS_INDEX[f.transition] ?? 1);
       gl.uniform2f(P.u.uRes, this.w, this.h);
       gl.uniform1f(P.u.uSeed, f.seed);
       gl.drawArrays(gl.TRIANGLES, 0, 3);

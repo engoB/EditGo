@@ -3,7 +3,7 @@ import type { Clip, MediaItem, Project } from '../types';
 import type { CellDraw, ClipDraw, FrameDesc, SourceFrame } from './compositor';
 import { bestCollage } from '../story/collage';
 import { framing } from './compositor';
-import { LOOKS, THEMES } from '../presets';
+import { LOOKS, THEMES, safeTransition } from '../presets';
 import { stateAt, type Placed } from '../story/timeline';
 import { drawTitle } from './titles';
 import { clamp, hashStr } from '../util';
@@ -146,7 +146,7 @@ export function buildFrame(opts: {
     a,
     b,
     mix: st.mix,
-    transition: st.b ? st.b.clip.transition : 'cut',
+    transition: st.b ? safeTransition(st.b.clip.transition) : 'cut',
     seed: st.b ? (hashStr(st.b.clip.id) % 1000) / 37 : 0,
     post: {
       look,

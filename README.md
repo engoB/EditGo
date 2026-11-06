@@ -55,7 +55,7 @@ Version autonome en un seul fichier : **https://engob.github.io/EditGo/editgo-ho
 - Timeline : « Tout voir » (touche Z) et zoom progressif jusqu'au détail ; règle graduée adaptée au zoom (secondes → heures) ; réordonner par glisser, rogner la durée ou le point d'entrée d'une vidéo depuis les bords, couper à la tête de lecture, cartons-titres.
 - Vidéos : barre de découpe avec images-repères, poignées d'entrée et de sortie (et glissement de l'extrait entier), saisie au dixième de seconde, « Entrée ici / Sortie ici » à la tête de lecture (touches I et O).
 - « Réinitialiser » : recréer automatiquement le montage ou le vider (annulable).
-- Par plan : durée, 12 transitions, mouvement Ken Burns, cadrage (remplir / fond flou / entier), titre (6 styles animés), vitesse et volume des vidéos.
+- Par plan : durée, 9 transitions (fondu, fondu au noir, flash blanc, flou, poussée, fuite de lumière, brûlure de pellicule, encre, coupe franche), mouvement Ken Burns, cadrage (remplir / fond flou / entier), titre (6 styles animés), vitesse et volume des vidéos.
 - Étalonnage (8 looks), halo, vignettage, grain, bandes cinéma 2,39:1, formats 16:9, 9:16, 1:1, 4:5, 21:9.
 - Musique originale générée sur l'appareil (3 ambiances) ou morceau importé (tempo détecté), atténuation automatique pendant les vidéos.
 - Annuler / rétablir, raccourcis (Espace, ← →, Maj+← →, Suppr, Ctrl+Z).

@@ -108,23 +108,6 @@ float bell(float t) { return sin(3.14159265 * clamp(t, 0.0, 1.0)); }
 vec3 A(vec2 uv) { return texture(uA, uv).rgb; }
 vec3 B(vec2 uv) { return texture(uB, uv).rgb; }
 
-vec3 dirBlur(sampler2D s, vec2 uv, vec2 dir) {
-  vec3 c = vec3(0.0);
-  for (int i = -6; i <= 6; i++) {
-    float t = float(i) / 6.0;
-    c += texture(s, clamp(uv + dir * t, 0.0, 1.0)).rgb;
-  }
-  return c / 13.0;
-}
-vec3 radialBlur(sampler2D s, vec2 uv, float scale, float amount) {
-  vec2 c = vec2(0.5);
-  vec3 col = vec3(0.0);
-  for (int i = 0; i < 10; i++) {
-    float k = scale * (1.0 - amount * float(i) / 10.0);
-    col += texture(s, clamp(c + (uv - c) / k, 0.0, 1.0)).rgb;
-  }
-  return col / 10.0;
-}
 
 void main() {
   vec2 uv = vUv;
@@ -144,17 +127,6 @@ void main() {
   } else if (uType == 4) {        // flou dissolvant
     float lod = bell(t) * 5.5;
     col = mix(textureLod(uA, uv, lod).rgb, textureLod(uB, uv, lod).rgb, smoothstep(0.25, 0.75, t));
-  } else if (uType == 5) {        // zoom cinétique
-    float amt = bell(t) * 0.35;
-    vec3 a = radialBlur(uA, uv, 1.0 + e * 1.6, amt);
-    vec3 b = radialBlur(uB, uv, 0.45 + e * 0.55, amt);
-    col = mix(a, b, smoothstep(0.42, 0.58, t));
-  } else if (uType == 6) {        // filé horizontal
-    float off = e;
-    float sp = bell(t) * 0.18;
-    vec2 ua = uv + vec2(off, 0.0);
-    vec2 ub = uv + vec2(off - 1.0, 0.0);
-    col = ua.x <= 1.0 ? dirBlur(uA, ua, vec2(sp, 0.0)) : dirBlur(uB, ub, vec2(sp, 0.0));
   } else if (uType == 7) {        // poussée
     vec2 ua = uv + vec2(e, 0.0);
     vec2 ub = uv + vec2(e - 1.0, 0.0);
@@ -175,11 +147,6 @@ void main() {
     col = mix(B(uv), A(uv), m);
     col += max(burn, 0.0) * bell(t) * 1.6;
     col += vec3(1.0, 0.8, 0.6) * pow(bell(t), 3.0) * 0.6;
-  } else if (uType == 10) {       // iris
-    vec2 q = (uv - 0.5) * vec2(uRes.x / uRes.y, 1.0);
-    float r = e * 1.25;
-    float m = smoothstep(r, r - 0.04, length(q));
-    col = mix(A(uv) * (1.0 - 0.3 * e), B(uv), m);
   } else if (uType == 11) {       // encre
     float n = fbm(uv * vec2(uRes.x / uRes.y, 1.0) * 2.5 + uSeed);
     float m = smoothstep(n - 0.06, n + 0.06, t * 1.25 - 0.1);

@@ -67,12 +67,9 @@ export type TransitionId =
   | 'dipBlack'
   | 'dipWhite'
   | 'blur'
-  | 'zoom'
-  | 'whip'
   | 'push'
   | 'lightLeak'
   | 'filmBurn'
-  | 'iris'
   | 'ink';
 
 export type MotionId = 'auto' | 'none' | 'zoomIn' | 'zoomOut' | 'panLeft' | 'panRight' | 'panUp' | 'panDown';

@@ -5,12 +5,9 @@ export const TRANSITIONS: { id: TransitionId; label: string }[] = [
   { id: 'dipBlack', label: 'Fondu au noir' },
   { id: 'dipWhite', label: 'Flash blanc' },
   { id: 'blur', label: 'Flou dissolvant' },
-  { id: 'zoom', label: 'Zoom cinétique' },
-  { id: 'whip', label: 'Filé (whip pan)' },
   { id: 'push', label: 'Poussée' },
   { id: 'lightLeak', label: 'Fuite de lumière' },
   { id: 'filmBurn', label: 'Brûlure de pellicule' },
-  { id: 'iris', label: 'Iris' },
   { id: 'ink', label: 'Encre' },
   { id: 'cut', label: 'Coupe franche' },
 ];
@@ -126,7 +123,7 @@ export interface Theme {
 export const THEMES: Record<ThemeId, Theme> = {
   cinema: {
     label: 'Cinéma', tagline: 'Cadre large, teintes ciné, rythme posé', look: 'cinema', lookIntensity: 1, grain: 0.25, vignette: 0.45, bloom: 0.15,
-    letterbox: true, title: 'cinema', chapterTitle: 'chapter', transitions: ['fade', 'zoom', 'fade', 'blur'], chapterTransition: 'dipBlack',
+    letterbox: true, title: 'cinema', chapterTitle: 'chapter', transitions: ['fade', 'blur', 'fade', 'lightLeak'], chapterTransition: 'dipBlack',
     transitionDuration: 1.0, photoDuration: 3.4, mood: 'cinematic', motion: 1,
   },
   douceur: {
@@ -136,7 +133,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   },
   energie: {
     label: 'Énergie', tagline: 'Coupes rythmées, couleurs vives', look: 'vivid', lookIntensity: 1, grain: 0.08, vignette: 0.3, bloom: 0.2,
-    letterbox: false, title: 'bold', chapterTitle: 'bold', transitions: ['whip', 'zoom', 'cut', 'push', 'dipWhite'], chapterTransition: 'dipWhite',
+    letterbox: false, title: 'bold', chapterTitle: 'bold', transitions: ['push', 'cut', 'dipWhite', 'fade'], chapterTransition: 'dipWhite',
     transitionDuration: 0.45, photoDuration: 1.9, mood: 'upbeat', motion: 1.3,
   },
   argentique: {
@@ -146,7 +143,7 @@ export const THEMES: Record<ThemeId, Theme> = {
   },
   noirblanc: {
     label: 'Noir & blanc', tagline: 'Intemporel, contrasté', look: 'mono', lookIntensity: 1, grain: 0.4, vignette: 0.55, bloom: 0.1,
-    letterbox: true, title: 'cinema', chapterTitle: 'chapter', transitions: ['fade', 'dipBlack', 'iris', 'fade'], chapterTransition: 'dipBlack',
+    letterbox: true, title: 'cinema', chapterTitle: 'chapter', transitions: ['fade', 'dipBlack', 'blur', 'fade'], chapterTransition: 'dipBlack',
     transitionDuration: 1.0, photoDuration: 3.4, mood: 'cinematic', motion: 0.8,
   },
   epure: {
@@ -188,4 +185,10 @@ export function dimsFor(aspect: AspectId, short: number): { w: number; h: number
   const even = (v: number) => Math.round(v / 2) * 2;
   if (a.w >= a.h) return { w: even((short * a.w) / a.h), h: short };
   return { w: short, h: even((short * a.h) / a.w) };
+}
+
+/** Transitions retirées : les anciens projets passent en fondu enchaîné. */
+const RETIRED = new Set(['zoom', 'whip', 'iris']);
+export function safeTransition(t: string): TransitionId {
+  return RETIRED.has(t) ? 'fade' : (t as TransitionId);
 }
