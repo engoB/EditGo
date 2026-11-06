@@ -26,6 +26,7 @@ import type { MediaItem, Project } from '../types';
 import { Compositor, type SourceFrame } from '../render/compositor';
 import { buildFrame, type SourceProvider } from '../render/frame';
 import { ImageCache } from '../render/images';
+import { lowMemory } from '../media/playback';
 import { layout, stateAt, type Placed } from '../story/timeline';
 import { mixAudioChunk } from '../audio/mix';
 import { lazy } from '../lazy';
@@ -114,7 +115,7 @@ class ExportSources implements SourceProvider {
     maxSide: number,
     private seekOnly = false,
   ) {
-    this.images = new ImageCache(maxSide, 10);
+    this.images = new ImageCache(maxSide, lowMemory ? 5 : 10);
   }
 
   private timestampsFor(p: Placed): number[] {

@@ -1,5 +1,5 @@
 // Mixage audio final (export) : musique + son des vidéos, fondus et ducking.
-import { ALL_FORMATS, AudioBufferSink, BlobSource, Input } from 'mediabunny';
+import { ALL_FORMATS, AudioBufferSink, BlobSource, BufferTarget, EncodedAudioPacketSource, EncodedPacketSink, Input, Mp4OutputFormat, Output, type InputAudioTrack } from 'mediabunny';
 import { ensureDecoder } from '../media/codecs';
 import type { MediaItem, Project } from '../types';
 import type { Placed } from '../story/timeline';
@@ -7,48 +7,78 @@ import { applyMusicEnvelope, duckingSegments } from './envelope';
 
 /** Extrait le son d'une vidéo entre deux instants (s). */
 export async function extractAudio(file: File, start: number, end: number): Promise<AudioBuffer | null> {
+  let input: Input | null = null;
   try {
-    const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+    input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
     const track = await input.getPrimaryAudioTrack();
-    if (track) await ensureDecoder(track.codec);
-    if (!track || !(await track.canDecode())) throw new Error('no-decode');
+    if (!track) return null;
+    await ensureDecoder(track.codec);
     // temps relatifs au début de la vidéo (les flux MTS ne commencent pas à 0)
     const vt = await input.getPrimaryVideoTrack();
     const base = await (vt ?? track).getFirstTimestamp().catch(() => 0);
     start += base;
     end += base;
-    const sr = track.sampleRate;
-    const ch = Math.min(2, track.numberOfChannels);
-    const out = new AudioBuffer({ length: Math.max(1, Math.ceil((end - start) * sr)), numberOfChannels: ch, sampleRate: sr });
-    const sink = new AudioBufferSink(track);
-    for await (const { buffer, timestamp } of sink.buffers(start, end)) {
-      const off = Math.round((timestamp - start) * sr);
-      for (let c = 0; c < ch; c++) {
-        const src = buffer.getChannelData(Math.min(c, buffer.numberOfChannels - 1));
-        const dst = out.getChannelData(c);
-        const from = Math.max(0, -off);
-        const n = Math.min(src.length - from, dst.length - Math.max(0, off));
-        if (n > 0) dst.set(src.subarray(from, from + n), Math.max(0, off));
-      }
-    }
-    input.dispose?.();
-    return out;
+    const forceNoDecoder = (globalThis as { __editgoNoAudioDecoder?: boolean }).__editgoNoAudioDecoder;
+    if (!forceNoDecoder && (await track.canDecode())) return await decodeRange(track, start, end);
+    // pas de décodeur audio WebCodecs (iPhone, Safari) : on recopie seulement l'extrait
+    // compressé dans un petit fichier, que Web Audio décode (quelques Mo au lieu du fichier entier)
+    return await remuxRange(track, start, end);
   } catch {
-    try {
-      // décodage du fichier entier : seulement s'il tient raisonnablement en mémoire (téléphones)
-      if (file.size > 400 * 1024 * 1024) return null;
-      const ctx = new OfflineAudioContext(2, 48000, 48000);
-      const full = await ctx.decodeAudioData(await file.arrayBuffer());
-      const sr = full.sampleRate;
-      const a = Math.floor(start * sr),
-        b = Math.min(full.length, Math.ceil(end * sr));
-      const out = new AudioBuffer({ length: Math.max(1, b - a), numberOfChannels: full.numberOfChannels, sampleRate: sr });
-      for (let c = 0; c < full.numberOfChannels; c++) out.getChannelData(c).set(full.getChannelData(c).subarray(a, b));
-      return out;
-    } catch {
-      return null;
+    return null;
+  } finally {
+    input?.dispose?.();
+  }
+}
+
+async function decodeRange(track: InputAudioTrack, start: number, end: number): Promise<AudioBuffer> {
+  const sr = track.sampleRate;
+  const ch = Math.min(2, track.numberOfChannels);
+  const out = new AudioBuffer({ length: Math.max(1, Math.ceil((end - start) * sr)), numberOfChannels: ch, sampleRate: sr });
+  const sink = new AudioBufferSink(track);
+  for await (const { buffer, timestamp } of sink.buffers(start, end)) {
+    const off = Math.round((timestamp - start) * sr);
+    for (let c = 0; c < ch; c++) {
+      const src = buffer.getChannelData(Math.min(c, buffer.numberOfChannels - 1));
+      const dst = out.getChannelData(c);
+      const from = Math.max(0, -off);
+      const n = Math.min(src.length - from, dst.length - Math.max(0, off));
+      if (n > 0) dst.set(src.subarray(from, from + n), Math.max(0, off));
     }
   }
+  return out;
+}
+
+async function remuxRange(track: InputAudioTrack, start: number, end: number): Promise<AudioBuffer | null> {
+  const codec = track.codec;
+  const cfg = await track.getDecoderConfig();
+  if (!codec || !cfg) return null;
+  const sink = new EncodedPacketSink(track);
+  // un peu de marge avant : le décodeur AAC a besoin des paquets précédents pour démarrer proprement
+  const first = (await sink.getPacket(Math.max(0, start - 0.2))) ?? (await sink.getFirstPacket());
+  if (!first) return null;
+  const target = new BufferTarget();
+  const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target });
+  const src = new EncodedAudioPacketSource(codec);
+  output.addAudioTrack(src);
+  await output.start();
+  const t0 = first.timestamp;
+  let meta: EncodedAudioChunkMetadata | undefined = { decoderConfig: cfg };
+  for await (const pk of sink.packets(first)) {
+    if (pk.timestamp > end + 0.1) break;
+    await src.add(pk.clone({ timestamp: pk.timestamp - t0 }), meta);
+    meta = undefined;
+  }
+  await output.finalize();
+  if (!target.buffer) return null;
+  const ctx = new OfflineAudioContext(1, 1, cfg.sampleRate || 48000);
+  const dec = await ctx.decodeAudioData(target.buffer);
+  const sr = dec.sampleRate;
+  const ch = Math.min(2, dec.numberOfChannels);
+  const len = Math.max(1, Math.ceil((end - start) * sr));
+  const out = new AudioBuffer({ length: len, numberOfChannels: ch, sampleRate: sr });
+  const off = Math.max(0, Math.round((start - t0) * sr));
+  for (let c = 0; c < ch; c++) out.getChannelData(c).set(dec.getChannelData(c).subarray(off, off + len));
+  return out;
 }
 
 export async function mixAudio(opts: {

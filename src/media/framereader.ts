@@ -15,6 +15,8 @@ export class FrameReader {
   height = 0;
   duration = 0;
   offset = 0;
+  /** Rotation à appliquer (vidéos d'iPhone tournées en portrait : 90°). */
+  rotation = 0;
   private pool: HTMLCanvasElement[] = [];
   private poolIdx = 0;
 
@@ -53,6 +55,7 @@ export class FrameReader {
     }
     if (!config) throw new Error('Codec vidéo non pris en charge par ce navigateur');
     const r = new FrameReader(input, new mb.EncodedPacketSink(vt), config, maxSide);
+    r.rotation = ((vt.rotation ?? 0) % 360 + 360) % 360;
     r.offset = await vt.getFirstTimestamp();
     r.duration = Math.max(0, (await vt.computeDuration()) - r.offset);
     // dimensions réelles : première image décodée
@@ -62,7 +65,7 @@ export class FrameReader {
   }
 
   private canvasFor(w: number, h: number): HTMLCanvasElement {
-    if (!this.pool.length) for (let i = 0; i < 5; i++) this.pool.push(document.createElement('canvas'));
+    if (!this.pool.length) for (let i = 0; i < 3; i++) this.pool.push(document.createElement('canvas'));
     const c = this.pool[this.poolIdx++ % this.pool.length];
     if (c.width !== w || c.height !== h) {
       c.width = w;
@@ -72,13 +75,27 @@ export class FrameReader {
   }
 
   private toFrame(vf: VideoFrame): Frame {
-    const s = Math.min(1, this.maxSide / Math.max(vf.displayWidth, vf.displayHeight));
-    const w = Math.max(2, Math.round(vf.displayWidth * s)),
-      h = Math.max(2, Math.round(vf.displayHeight * s));
-    this.width = vf.displayWidth;
-    this.height = vf.displayHeight;
+    const rot = this.rotation;
+    const side = rot === 90 || rot === 270;
+    const dw = side ? vf.displayHeight : vf.displayWidth,
+      dh = side ? vf.displayWidth : vf.displayHeight;
+    const s = Math.min(1, this.maxSide / Math.max(dw, dh));
+    const w = Math.max(2, Math.round(dw * s)),
+      h = Math.max(2, Math.round(dh * s));
+    this.width = dw;
+    this.height = dh;
     const c = this.canvasFor(w, h);
-    c.getContext('2d')!.drawImage(vf, 0, 0, w, h);
+    const g = c.getContext('2d')!;
+    if (rot) {
+      // image codée « couchée » : on la redresse selon la rotation du conteneur
+      g.save();
+      g.translate(w / 2, h / 2);
+      g.rotate((rot * Math.PI) / 180);
+      const iw = side ? h : w,
+        ih = side ? w : h;
+      g.drawImage(vf, -iw / 2, -ih / 2, iw, ih);
+      g.restore();
+    } else g.drawImage(vf, 0, 0, w, h);
     const f = { canvas: c, timestamp: vf.timestamp / 1e6 - this.offset, duration: (vf.duration ?? 40000) / 1e6 };
     vf.close();
     return f;

@@ -11,10 +11,10 @@ import { ASPECTS } from '../presets';
 import { DecodedVideo } from './decoded';
 import { attachVideo, detachVideo } from '../media/videohost';
 import { extractAudio } from '../audio/mix';
-import { decoderFailed, useDecoder } from '../media/playback';
+import { decoderFailed, lowMemory, useDecoder } from '../media/playback';
 
 class PreviewSources implements SourceProvider {
-  images = new ImageCache(1920, 24);
+  images = lowMemory ? new ImageCache(1280, 10) : new ImageCache(1920, 24);
   videos = new Map<string, HTMLVideoElement>();
   decoded = new Map<string, DecodedVideo>();
   onReady: () => void = () => {};
@@ -70,7 +70,7 @@ class PreviewSources implements SourceProvider {
   decodedFor(p: Placed, m: MediaItem): DecodedVideo {
     let dv = this.decoded.get(p.clip.id);
     if (!dv) {
-      dv = new DecodedVideo(m.file!, () => this.onReady(), 1280, !m.decode);
+      dv = new DecodedVideo(m.file!, () => this.onReady(), lowMemory ? 960 : 1280, !m.decode);
       this.decoded.set(p.clip.id, dv);
     }
     return dv;
@@ -117,11 +117,35 @@ class PreviewSources implements SourceProvider {
         const x = media.get(id);
         if (x && !this.images.has(x.id)) void this.images.load(x).then(() => this.onReady());
       }
-      if (m?.kind === 'video' && m.file && useDecoder(m) && p.clip.type === 'media' && p.start > t && !playing.value) this.decodedFor(p, m).seek(p.clip.trimIn);
-      else if (m?.kind === 'video' && m.file && p.clip.type === 'media' && p.start > t) {
+      if (m?.kind !== 'video' || !m.file || p.clip.type !== 'media' || p.start <= t) continue;
+      if (useDecoder(m)) {
+        // décodeur : seulement le plan suivant proche (mémoire limitée)
+        if (p.start < t + 4 && !playing.value) this.decodedFor(p, m).seek(p.clip.trimIn);
+      } else {
         const v = this.video(p, m);
         if (!playing.value && Math.abs(v.currentTime - p.clip.trimIn) > 0.05 && !v.seeking) v.currentTime = p.clip.trimIn;
       }
+    }
+  }
+
+  /** Libère décodeurs et vidéos des plans éloignés de la tête de lecture (mémoire des téléphones). */
+  trim(placed: Placed[], t: number) {
+    const before = lowMemory ? 2 : 4,
+      after = lowMemory ? 6 : 15;
+    const near = new Set(placed.filter((p) => p.end > t - before && p.start < t + after).map((p) => p.clip.id));
+    for (const [id, dv] of this.decoded) {
+      if (near.has(id)) continue;
+      dv.dispose();
+      this.decoded.delete(id);
+    }
+    for (const [id, v] of this.videos) {
+      if (near.has(id)) continue;
+      detachVideo(v);
+      URL.revokeObjectURL(v.src);
+      v.removeAttribute('src');
+      v.load();
+      this.videos.delete(id);
+      this.active.delete(id);
     }
   }
 
@@ -161,8 +185,9 @@ export class Player {
   private renderMs = 8;
 
   constructor(readonly canvas: HTMLCanvasElement) {
+    (globalThis as { __editgoPlayer?: unknown }).__editgoPlayer = this; // diagnostic
     this.comp = new Compositor(canvas);
-    this.comp.maxCached = 22;
+    this.comp.maxCached = lowMemory ? 10 : 22;
     const oc = document.createElement('canvas');
     this.overlay = { canvas: oc, ctx: oc.getContext('2d')! };
     this.src.onReady = () => (this.dirty = true);
@@ -378,6 +403,12 @@ export class Player {
   }
 
   private lastSync = 0;
+  private lastTrim = 0;
+  /** Sons extraits des plans éloignés : libérés. */
+  private trimAudio(placed: Placed[], t: number) {
+    const near = new Set(placed.filter((p) => p.end > t - 3 && p.start < t + 10).map((p) => p.clip.id));
+    for (const id of [...this.decAudio.keys()]) if (!near.has(id) && !this.decNodes.has(id)) this.decAudio.delete(id);
+  }
   private loop() {
     this.raf = requestAnimationFrame(this.loop);
     if (this.comp.lost) return;
@@ -406,6 +437,11 @@ export class Player {
     const t = Math.min(playhead.value, Math.max(0, total - 0.001));
     const media = mediaMap.value;
     this.src.prefetch(placed, t, media);
+    if (performance.now() - this.lastTrim > 1000) {
+      this.lastTrim = performance.now();
+      this.src.trim(placed, t);
+      this.trimAudio(placed, t);
+    }
     const t0 = performance.now();
     const fd = buildFrame({ project: project.value, media, placed, total, t, W: size.w, H: size.h, provider: this.src, overlay: this.overlay });
     this.comp.render(fd);

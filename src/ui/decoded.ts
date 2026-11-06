@@ -37,7 +37,8 @@ export class DecodedVideo {
       this.sink = reader;
       this.ready = true;
       if (this.want >= 0) this.seek(this.want);
-    } catch {
+    } catch (e) {
+      console.warn('[editgo] décodeur :', (e as Error)?.message);
       this.failed = true;
     }
   }

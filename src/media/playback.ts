@@ -19,4 +19,11 @@ export function useDecoder(m: MediaItem): boolean {
 /** Le décodeur n'a pas su lire cette vidéo : retour à la balise <video> (si elle en est capable). */
 export function decoderFailed(m: MediaItem) {
   if (!m.decode) failed.add(m.id);
+  console.warn('[editgo] décodeur indisponible, repli <video> :', m.name);
 }
+
+/** Appareil à mémoire limitée (téléphone, tablette) : caches réduits. */
+export const lowMemory =
+  /iPhone|iPad|iPod|Android/.test(ua) ||
+  (/Macintosh/.test(ua) && typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1) ||
+  ((typeof navigator !== 'undefined' && (navigator as Navigator & { deviceMemory?: number }).deviceMemory) || 8) <= 4;
