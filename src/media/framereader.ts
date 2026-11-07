@@ -184,7 +184,9 @@ export class FrameReader {
   /** Une image par horodatage (croissants), pour l'export. */
   async *atTimestamps(ts: number[]): AsyncGenerator<Frame | null, void, unknown> {
     if (!ts.length) return;
-    const g = this.frames(Math.max(0, ts[0]));
+    let want = ts[0];
+    // les images qui ne couvrent pas l'instant voulu sont jetées sans être dessinées
+    const g = this.frames(Math.max(0, ts[0]), () => want - 1e-3);
     let cur: Frame | null = null;
     let next: Frame | null = null;
     let done = false;
@@ -200,6 +202,7 @@ export class FrameReader {
     try {
       next = await pull();
       for (const t of ts) {
+        want = t;
         while (next && next.timestamp <= t + 1e-4) {
           cur = next;
           next = await pull();

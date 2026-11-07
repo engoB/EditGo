@@ -26,7 +26,7 @@ import type { MediaItem, Project } from '../types';
 import { Compositor, type SourceFrame } from '../render/compositor';
 import { buildFrame, type SourceProvider } from '../render/frame';
 import { ImageCache } from '../render/images';
-import { lowMemory } from '../media/playback';
+import { decoderFailed, lowMemory, useDecoder } from '../media/playback';
 import { layout, stateAt, type Placed } from '../story/timeline';
 import { mixAudioChunk } from '../audio/mix';
 import { lazy } from '../lazy';
@@ -131,12 +131,20 @@ class ExportSources implements SourceProvider {
     return out;
   }
 
-  private async videoIter(p: Placed, m: MediaItem, maxSide: number) {
+  private async videoIter(p: Placed, m: MediaItem, maxSide: number): Promise<AsyncGenerator<WrappedCanvas | null, void, unknown>> {
     let it = this.videoIters.get(p.clip.id);
     if (it) return it;
-    if (m.decode) {
-      // lecture directe par le décodeur (MTS AVCHD, entrelacé…)
-      const reader = await FrameReader.open(m.file!, maxSide);
+    if (useDecoder(m)) {
+      // lecture directe par le décodeur image par image : MTS AVCHD, entrelacé… et iPhone / Safari,
+      // où c'est le seul chemin fiable (le même que l'aperçu du montage)
+      let reader: FrameReader;
+      try {
+        reader = await FrameReader.open(m.file!, maxSide, !m.decode);
+      } catch (e) {
+        if (m.decode) throw e;
+        decoderFailed(m);
+        return this.videoIter(p, m, maxSide);
+      }
       it = reader.atTimestamps(this.timestampsFor(p)) as unknown as AsyncGenerator<WrappedCanvas | null, void, unknown>;
       this.videoIters.set(p.clip.id, it);
       const it0 = it;
