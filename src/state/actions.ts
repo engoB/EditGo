@@ -454,10 +454,9 @@ export async function autoCreate() {
   await prepareMusic();
   const t = Math.round(timeline.value.total);
   toast(
-    `Film créé : ${story.clips?.length ?? 0} plans, ${Math.floor(t / 60)} min ${String(t % 60).padStart(2, '0')}` +
-      (p.buildMode === 'all' ? ' (tous les médias). Ajustez la durée dans « Style ».' : '.'),
+    `Film créé · ${story.clips?.length ?? 0} plans · ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`,
     'ok',
-    5000,
+    3000,
   );
 }
 

@@ -2,7 +2,6 @@ import { useState } from 'preact/hooks';
 import { importing, media, sources } from '../state/store';
 import { removeSource, rereadDates, rescanAll, rescanSource } from '../state/actions';
 import { grantPendingAccess, handlesUnsafe, pendingAccess } from '../state/persist';
-import { canPickFolders } from '../media/sources';
 import { Icon } from './icons';
 
 const since = (t: number) => {
@@ -23,7 +22,12 @@ export function SourcesPanel({ onAddFolder, onAddFiles }: { onAddFolder: () => v
   return (
     <div class="sources">
       <div class="sources-head">
-        <h4 class="side-title">Dossiers sources</h4>
+        <h4 class="side-title">Sources</h4>
+        {media.value.some((m) => m.file && !m.demo) && (
+          <button class="ibtn" title="Relire les dates inscrites dans les fichiers" disabled={busy} onClick={() => void rereadDates(false)}>
+            <Icon name="calendar" size={14} />
+          </button>
+        )}
         {list.some((s) => s.handle) && (
           <button class="ibtn" title="Relire tous les dossiers (nouveaux fichiers, fichiers déplacés)" disabled={busy} onClick={() => void rescanAll(true)}>
             <Icon name="refresh" size={14} />
@@ -71,28 +75,15 @@ export function SourcesPanel({ onAddFolder, onAddFiles }: { onAddFolder: () => v
           </div>
         </div>
       )}
-      {media.value.some((m) => m.file && !m.demo) && (
-        <button class="btn btn-quiet btn-sm" disabled={busy} onClick={() => void rereadDates(false)} title="Relit toutes les dates inscrites dans les fichiers (sauf dates corrigées à la main)">
-          <Icon name="calendar" size={14} /> Relire les dates des fichiers
-        </button>
-      )}
       <div class="side-actions">
         <button class="btn btn-ghost" disabled={busy} onClick={onAddFolder}>
-          <Icon name="plus" size={15} /> Dossier
+          <Icon name="folder" size={15} /> Dossier
         </button>
         <button class="btn btn-ghost" disabled={busy} onClick={onAddFiles}>
-          <Icon name="upload" size={15} /> Fichiers
+          <Icon name="plus" size={15} /> Fichiers
         </button>
       </div>
-      {handlesUnsafe.value && list.some((s) => !s.handle) && (
-        <p class="side-note">L’accès mémorisé aux dossiers n’a pas pu être relu sur ce navigateur : ajoutez-les à nouveau (« + Dossier »), leurs fichiers seront réassociés.</p>
-      )}
-      {!list.length && (
-        <p class="side-note">
-          Ajoutez autant de dossiers que vous voulez (photos du téléphone, dossier Google Drive synchronisé, export Google Photos…).
-          {canPickFolders() ? ' L’accès est mémorisé : les nouvelles photos seront trouvées automatiquement à la prochaine ouverture.' : ''}
-        </p>
-      )}
+      {handlesUnsafe.value && list.some((s) => !s.handle) && <p class="side-note">Ajoutez à nouveau vos dossiers pour les relire.</p>}
     </div>
   );
 }
@@ -105,7 +96,7 @@ export function AccessBanner() {
     <div class="access-banner">
       <Icon name="folder" size={16} />
       <span>
-        Pour relire {list.length > 1 ? `vos ${list.length} dossiers` : `le dossier « ${list[0].name} »`} et y chercher les nouvelles photos, votre navigateur demande une autorisation.
+        Autoriser l’accès à {list.length > 1 ? `vos ${list.length} dossiers` : `« ${list[0].name} »`} pour y trouver les nouvelles photos.
       </span>
       <button class="btn btn-primary btn-sm" onClick={() => void grantPendingAccess()}>
         Autoriser l’accès

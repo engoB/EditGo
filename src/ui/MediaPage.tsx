@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { importOpts, importing, media, movedIds, project, updateProject } from '../state/store';
-import { addDroppedHandles, addFolderSource, addPickedFolders, autoCreate, forceInclude, importFiles, loadDemo, recomputeDuplicates, toggleExcluded, applyTheme, setMediaDate } from '../state/actions';
+import { importOpts, importing, media, movedIds, project } from '../state/store';
+import { addDroppedHandles, addFolderSource, addPickedFolders, autoCreate, forceInclude, importFiles, loadDemo, recomputeDuplicates, toggleExcluded, setMediaDate } from '../state/actions';
 import { SourcesPanel } from './Sources';
+import { CreatePanel, formatSummary } from './CreatePanel';
 import { MediaViewer } from './MediaViewer';
-import { newProject } from '../state/persist';
 import { RecentProjects } from './Projects';
 import { buildStory, usable } from '../story/auto';
 import { layout } from '../story/timeline';
@@ -13,8 +13,7 @@ import { DATE_SOURCE_LABEL } from '../media/dates';
 import { chapters } from '../story/auto';
 import { Icon } from './icons';
 import { Segmented, Slider, Toggle } from './controls';
-import { THEMES, LOOKS } from '../presets';
-import type { MediaItem, ThemeId } from '../types';
+import type { MediaItem } from '../types';
 import { fmtDuration, formatDayShort, formatTime } from '../util';
 
 type Filter = 'all' | 'photo' | 'video' | 'dups' | 'excluded';
@@ -144,53 +143,26 @@ function Welcome() {
       {inputs}
       <div class="welcome-glow" />
       <div class="welcome-inner">
-        <span class="eyebrow">
-          <Icon name="shield" size={14} /> 100 % hors ligne · vos fichiers ne quittent jamais l’appareil
-        </span>
         <h1>
           Vos souvenirs,
           <br />
-          <em>montés comme au cinéma.</em>
+          <em>en film.</em>
         </h1>
-        <p class="lead">
-          Donnez-lui un ou plusieurs dossiers (téléphone, PC, Google Drive synchronisé, export Google Photos). EditGo trie tout seul : il date chaque fichier, écarte doublons et captures d’écran,
-          choisit les meilleurs moments et compose un film étalonné, titré et mis en musique — exportable jusqu’en 4K.
+        <p class="lead short">
+          <Icon name="shield" size={14} /> Hors ligne : vos fichiers restent sur l’appareil.
         </p>
         <div class="welcome-actions">
           <button class="btn btn-primary btn-lg" onClick={pickFolder}>
-            <Icon name="folder" /> Ajouter des dossiers
+            <Icon name="folder" /> Choisir un dossier
           </button>
           <button class="btn btn-ghost btn-lg" onClick={pickFiles}>
-            <Icon name="upload" /> Importer des fichiers
+            <Icon name="upload" /> Choisir des photos et vidéos
           </button>
           <button class="btn btn-link" onClick={loadDemo}>
             <Icon name="sparkles" size={16} /> Essayer avec la démo
           </button>
         </div>
-        <div class="drop-hint">ou glissez-déposez ici autant de dossiers que vous voulez</div>
         <RecentProjects />
-        <ul class="features">
-          <li>
-            <Icon name="clock" />
-            <b>Tri automatique</b>
-            <span>EXIF, vidéo, Google Takeout, noms de fichiers et de dossiers, numérotation</span>
-          </li>
-          <li>
-            <Icon name="layers" />
-            <b>Doublons écartés</b>
-            <span>Copies strictes, rafales et Live Photos</span>
-          </li>
-          <li>
-            <Icon name="palette" />
-            <b>Rendu premium</b>
-            <span>Étalonnage, transitions GPU, titrage animé</span>
-          </li>
-          <li>
-            <Icon name="hd" />
-            <b>Exports multiples</b>
-            <span>MP4 / WebM, 720p → 4K, 16:9, 9:16, 1:1, 4:5</span>
-          </li>
-        </ul>
       </div>
     </div>
   );
@@ -259,26 +231,6 @@ function Tile({ m, master, onDate, onOpen }: { m: MediaItem; master?: MediaItem;
         )}
       </div>
       {m.error && <div class="tile-err">{m.error}</div>}
-    </div>
-  );
-}
-
-function ThemePicker() {
-  const p = project.value;
-  return (
-    <div class="theme-grid">
-      {(Object.keys(THEMES) as ThemeId[]).map((id) => {
-        const th = THEMES[id];
-        return (
-          <button class={'theme-card' + (p.theme === id ? ' on' : '')} onClick={() => applyTheme(id, false)}>
-            <span class="theme-swatch" style={{ background: LOOKS[th.look].swatch }}>
-              <span class={'theme-sample ts-' + th.title}>Aa</span>
-            </span>
-            <b>{th.label}</b>
-            <small>{th.tagline}</small>
-          </button>
-        );
-      })}
     </div>
   );
 }
@@ -460,13 +412,6 @@ export function MediaPage() {
           />
           </details>
         </div>
-        <div class="side-block grow" />
-        <div class="side-block">
-          <p class="side-note">Le projet est enregistré automatiquement sur cet appareil.</p>
-          <button class="btn btn-quiet btn-sm" onClick={newProject}>
-            <Icon name="plus" size={14} /> Nouveau projet
-          </button>
-        </div>
       </aside>
 
       <section class="media-main">
@@ -523,7 +468,7 @@ export function MediaPage() {
 
       <div class="create-bar">
         <button class="btn btn-ghost" data-act="create-opts" onClick={() => setSheet(true)}>
-          <Icon name="palette" size={16} /> {THEMES[project.value.theme].label}
+          <Icon name="sliders" size={16} /> {formatSummary()}
         </button>
         <button class="btn btn-primary" data-act="create" disabled={!usableItems.length || !!importing.value} onClick={() => void autoCreate()}>
           <Icon name="sparkles" size={16} /> {project.value.clips.length ? 'Recréer le film' : 'Créer le film'}
@@ -531,68 +476,7 @@ export function MediaPage() {
       </div>
       {sheet && <div class="sheet-back" onClick={() => setSheet(false)} />}
       <aside class={'create-side panel' + (sheet ? ' sheet-open' : '')}>
-        <h3 class="create-title">
-          <Icon name="wand" /> Créer le film
-          <button class="ibtn sheet-close" aria-label="Fermer" onClick={() => setSheet(false)}>
-            <Icon name="x" size={18} />
-          </button>
-        </h3>
-        <p class="side-note">
-          {usableItems.length} médias retenus. Choisissez une ambiance et une durée, le montage est automatique — tout reste modifiable ensuite.
-        </p>
-        <h4 class="side-title">Ambiance</h4>
-        <ThemePicker />
-        <h4 class="side-title">Construction</h4>
-        <div class="build-modes">
-          <button class={'build-mode' + (project.value.buildMode === 'all' ? ' on' : '')} onClick={() => updateProject({ buildMode: 'all' })}>
-            <b>Tous les médias</b>
-            <small>Chaque photo et chaque vidéo en entier · durée naturelle ≈ {fmtDuration(natural)}</small>
-          </button>
-          <button class={'build-mode' + (project.value.buildMode === 'best' ? ' on' : '')} onClick={() => updateProject({ buildMode: 'best' })}>
-            <b>Meilleurs moments</b>
-            <small>Sélection des plus belles images pour une durée choisie</small>
-          </button>
-        </div>
-        {project.value.buildMode === 'best' ? (
-          <Segmented<number>
-            value={project.value.targetLength}
-            onChange={(v) => updateProject({ targetLength: v })}
-            options={[
-              { value: 30, label: '30 s' },
-              { value: 60, label: '1 min' },
-              { value: 120, label: '2 min' },
-              { value: 180, label: '3 min' },
-              { value: 300, label: '5 min' },
-            ]}
-          />
-        ) : (
-          <p class="side-note">Après création, allongez ou raccourcissez le film entier depuis le montage (onglet Style ou boutons − / + de la timeline).</p>
-        )}
-        <h4 class="side-title">Plusieurs photos par image</h4>
-        <Segmented<'off' | 'auto' | 'more'>
-          value={project.value.collage ?? 'auto'}
-          onChange={(v) => updateProject({ collage: v })}
-          options={[
-            { value: 'off', label: 'Jamais' },
-            { value: 'auto', label: 'Automatique' },
-            { value: 'more', label: 'Souvent' },
-          ]}
-        />
-        <label class="field">
-          <span class="field-label">Titre (facultatif)</span>
-          <input class="input" placeholder="Titre automatique selon les dates" value={project.value.title} onInput={(e) => updateProject({ title: (e.target as HTMLInputElement).value }, false)} />
-        </label>
-        <button
-          class="btn btn-primary btn-lg btn-block"
-          data-act="create-go"
-          disabled={!usableItems.length || !!importing.value}
-          onClick={() => {
-            setSheet(false);
-            void autoCreate();
-          }}
-        >
-          <Icon name="sparkles" /> {project.value.clips.length ? 'Recréer le film' : 'Créer le film'}
-        </button>
+        <CreatePanel count={usableItems.length} natural={natural} onDone={() => setSheet(false)} onClose={sheet ? () => setSheet(false) : undefined} />
       </aside>
       {viewerId && flat.some((x) => x.id === viewerId) && (
         <MediaViewer

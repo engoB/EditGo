@@ -6,8 +6,6 @@ import {
   musicBusy,
   musicBuffer,
   beginGesture,
-  timelineView,
-  page,
   playhead,
   playing,
   project,
@@ -18,7 +16,6 @@ import {
   removeClip,
   toast,
 } from '../state/store';
-import { sortClipsByDate } from '../state/actions';
 import { applyTheme, moveClipTo, nudgeClip, placeClipByDate, prepareMusic, rebuildStory, retimeFilm, setMediaDate, setMusicFile } from '../state/actions';
 import { retimeRange } from '../story/retime';
 import { layoutsFor, bestCollage, type Rect } from '../story/collage';
@@ -269,7 +266,6 @@ function CollageSection({ c }: { c: Clip }) {
           <button class="btn btn-ghost btn-sm btn-block" disabled={!nextIsPhoto} onClick={() => mergeWithNext(c.id)}>
             <Icon name="grid" size={14} /> Assembler avec la photo suivante
           </button>
-          <p class="side-note">Ou, en vue Storyboard, déposez une vignette sur une autre pour les réunir sur la même image (jusqu’à 4).</p>
         </>
       )}
     </Section>
@@ -346,7 +342,6 @@ function ClipInspector({ c }: { c: Clip }) {
             </button>
           </>
         )}
-        <p class="side-note">Astuce : en vue Storyboard, glissez simplement la vignette à sa nouvelle place.</p>
       </Section>
       <Section title="Durée & rythme">
         <Slider
@@ -532,7 +527,6 @@ function FilmDuration() {
           <Icon name="music" size={14} /> Caler sur la durée du morceau ({mmss(musicLen)})
         </button>
       )}
-      <p class="side-note">Toutes les durées sont ajustées proportionnellement ; les vidéos ne dépassent jamais leur longueur réelle.</p>
     </Section>
   );
 }
@@ -549,12 +543,10 @@ function StyleInspector() {
               <i style={{ background: LOOKS[THEMES[id].look].swatch }} />
               <span>
                 <b>{THEMES[id].label}</b>
-                <small>{THEMES[id].tagline}</small>
               </span>
             </button>
           ))}
         </div>
-        <p class="side-note">Changer d’ambiance recompose le montage (transitions, rythme, titres, musique).</p>
       </Section>
       <Section title="Format">
         <Segmented<AspectId>
@@ -565,7 +557,7 @@ function StyleInspector() {
         />
         <Toggle label="Bandes cinéma 2,39:1" checked={p.letterbox} onChange={(v) => updateProject({ letterbox: v })} hint="En format paysage" />
       </Section>
-      <Section title="Étalonnage">
+      <Section title="Étalonnage" closed>
         <div class="look-grid">
           {(Object.keys(LOOKS) as LookId[]).map((l) => (
             <button class={'look' + (p.look === l ? ' on' : '')} onClick={() => updateProject({ look: l })}>
@@ -579,7 +571,7 @@ function StyleInspector() {
         <Slider label="Vignettage" value={p.vignette} min={0} max={1} format={(v) => Math.round(v * 100) + ' %'} onInput={(v) => updateProject({ vignette: v }, false)} />
         <Slider label="Grain argentique" value={p.grain} min={0} max={1} format={(v) => Math.round(v * 100) + ' %'} onInput={(v) => updateProject({ grain: v }, false)} />
       </Section>
-      <Section title="Rythme du montage">
+      <Section title="Rythme du montage" closed>
         <Slider label="Durée des photos" value={p.photoDuration} min={1} max={8} step={0.1} format={(v) => v.toFixed(1) + ' s'} onInput={(v) => updateProject({ photoDuration: v }, false)} />
         <Segmented<'all' | 'best'>
           small
@@ -608,7 +600,7 @@ function StyleInspector() {
           <Icon name="wand" size={14} /> Recomposer le montage
         </button>
       </Section>
-      <Section title="Plusieurs photos par image">
+      <Section title="Plusieurs photos par image" closed>
         <Segmented<'off' | 'auto' | 'more'>
           small
           value={p.collage ?? 'auto'}
@@ -619,14 +611,11 @@ function StyleInspector() {
             { value: 'more', label: 'Souvent' },
           ]}
         />
-        <p class="side-note">
-          Réunit 2 à 4 photos prises au même moment sur une seule image, en priorité les portraits dans un film paysage. Les plus belles photos restent en plein cadre.
-        </p>
         <button class="btn btn-ghost btn-block btn-sm" onClick={() => regroupCollages(p.collage ?? 'auto')}>
           <Icon name="grid" size={14} /> Recomposer avec ce réglage
         </button>
       </Section>
-      <Section title="Titre du film">
+      <Section title="Titre du film" closed>
         <input class="input" value={p.title} placeholder="Titre" onInput={(e) => updateProject({ title: (e.target as HTMLInputElement).value }, false)} />
         <input class="input" value={p.subtitle} placeholder="Sous-titre" onInput={(e) => updateProject({ subtitle: (e.target as HTMLInputElement).value }, false)} />
         <button
@@ -682,7 +671,7 @@ function MusicInspector() {
         {musicBusy.value && <div class="busy-line">Préparation de la musique…</div>}
       </Section>
       {m.kind === 'generated' && (
-        <Section title="Composition originale (générée sur l’appareil)">
+        <Section title="Style musical">
           <div class="mood-list">
             {(Object.keys(MOODS) as MusicMood[]).map((k) => (
               <button
@@ -695,9 +684,7 @@ function MusicInspector() {
                 <Icon name="music" size={16} />
                 <span>
                   <b>{MOODS[k].label}</b>
-                  <small>
-                    {MOODS[k].desc} · {MOODS[k].bpm} BPM
-                  </small>
+                  <small>{MOODS[k].bpm} BPM</small>
                 </span>
               </button>
             ))}
@@ -714,7 +701,7 @@ function MusicInspector() {
             </button>
           </div>
           <Slider label="Départ dans le morceau" value={m.offset} min={0} max={120} step={0.1} format={(v) => v.toFixed(1) + ' s'} onInput={(v) => setMusic({ offset: v }, false)} />
-          <p class="side-note">Tempo détecté : {m.bpm} BPM. Le fichier reste sur votre appareil.</p>
+          <p class="side-note">{m.bpm} BPM</p>
         </Section>
       )}
       {m.kind !== 'none' && (
@@ -733,62 +720,8 @@ function MusicInspector() {
   );
 }
 
-function QuickActions({ onStyle, onMusic }: { onStyle: () => void; onMusic: () => void }) {
-  const clips = project.value.clips;
-  return (
-    <div class="quick">
-      <p class="quick-hint">
-        <Icon name="info" size={15} /> Cliquez un plan dans la timeline (ou le storyboard) pour régler sa durée, sa transition, son titre, ou découper une vidéo.
-      </p>
-      <h4 class="side-title">Actions rapides</h4>
-      <button class="quick-row" onClick={onStyle}>
-        <Icon name="clock" size={17} />
-        <span>
-          <b>Durée du film</b>
-          <small>Allonger ou raccourcir le film entier</small>
-        </span>
-      </button>
-      <button class="quick-row" disabled={clips.length < 2} onClick={sortClipsByDate}>
-        <Icon name="calendar" size={17} />
-        <span>
-          <b>Remettre dans l’ordre des dates</b>
-          <small>Après avoir corrigé des dates</small>
-        </span>
-      </button>
-      <button class="quick-row" onClick={() => (timelineView.value = 'storyboard')}>
-        <Icon name="grid" size={17} />
-        <span>
-          <b>Réorganiser les plans</b>
-          <small>Vue Storyboard : glisser-déposer, réunir des photos</small>
-        </span>
-      </button>
-      <button class="quick-row" onClick={onStyle}>
-        <Icon name="palette" size={17} />
-        <span>
-          <b>Ambiance, couleurs, format</b>
-          <small>Cinéma, Douceur, Énergie… · 16:9, 9:16…</small>
-        </span>
-      </button>
-      <button class="quick-row" onClick={onMusic}>
-        <Icon name="music" size={17} />
-        <span>
-          <b>Musique</b>
-          <small>Composée sur l’appareil ou votre morceau</small>
-        </span>
-      </button>
-      <button class="quick-row" disabled={!clips.length} onClick={() => (page.value = 'export')}>
-        <Icon name="download" size={17} />
-        <span>
-          <b>Exporter le film</b>
-          <small>MP4 / WebM, jusqu’en 4K</small>
-        </span>
-      </button>
-    </div>
-  );
-}
-
 function Inspector() {
-  const [tab, setTab] = useState<'clip' | 'style' | 'music'>('style');
+  const [tab, setTab] = useState<'clip' | 'style' | 'music'>(selectedClip.peek() ? 'clip' : 'style');
   const sel = selectedClip.value;
   const clip = sel ? project.value.clips.find((c) => c.id === sel) : undefined;
   useEffect(() => {
@@ -801,7 +734,7 @@ function Inspector() {
           <Icon name="image" size={15} /> Plan
         </button>
         <button class={tab === 'style' ? 'on' : ''} onClick={() => setTab('style')}>
-          <Icon name="palette" size={15} /> Style
+          <Icon name="film" size={15} /> Film
         </button>
         <button class={tab === 'music' ? 'on' : ''} onClick={() => setTab('music')}>
           <Icon name="music" size={15} /> Musique
@@ -812,7 +745,10 @@ function Inspector() {
           (clip ? (
             <ClipInspector key={clip.id} c={clip} />
           ) : (
-            <QuickActions onStyle={() => setTab('style')} onMusic={() => setTab('music')} />
+            <div class="insp-empty">
+              <Icon name="image" size={22} />
+              <span>Sélectionnez un plan</span>
+            </div>
           ))}
         {tab === 'style' && <StyleInspector />}
         {tab === 'music' && <MusicInspector />}

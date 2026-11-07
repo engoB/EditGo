@@ -6,24 +6,24 @@ import { Icon } from './icons';
 export const guideOpen = signal(false);
 
 const STEPS = [
-  { n: 1, title: 'Médias', text: 'Ajoutez vos dossiers (« + Dossier »). EditGo date chaque fichier, écarte doublons et captures, et regroupe par jour.', go: 'media' as const },
-  { n: 2, title: 'Créer le film', text: 'Dans la colonne de droite des Médias : ambiance, construction (tous les médias ou meilleurs moments), puis « Créer le film ».', go: 'media' as const },
-  { n: 3, title: 'Ajuster', text: 'Onglet Montage : durée du film, ordre des plans, découpe des vidéos, titres, musique. Tout est annulable (Ctrl+Z).', go: 'edit' as const },
-  { n: 4, title: 'Exporter', text: 'Onglet Export : choisissez les formats, lancez. Le film est écrit directement dans le dossier choisi.', go: 'export' as const },
+  { n: 1, title: 'Médias', text: 'Ajoutez vos dossiers ou fichiers : tout est daté, trié par jour, doublons écartés.', go: 'media' as const },
+  { n: 2, title: 'Créer le film', text: 'Format, ambiance, durée, musique, puis « Créer le film ».', go: 'media' as const },
+  { n: 3, title: 'Ajuster', text: 'Ordre des plans, découpe des vidéos, durée, titres. Tout est annulable.', go: 'edit' as const },
+  { n: 4, title: 'Exporter', text: 'Choisissez la qualité, puis « Exporter ».', go: 'export' as const },
 ];
 
 const WHERE: [string, string][] = [
   ['Corriger la date d’une photo ou vidéo', 'Médias → cliquer la vignette → « Dates trouvées » / « Décaler tout le dossier »'],
   ['Agrandir les vignettes, voir une photo en grand', 'Médias → curseur en haut à droite · clic sur une vignette'],
   ['Exclure ou garder un média', 'Médias → survol de la vignette → Exclure / Inclure / Garder aussi'],
-  ['Changer la durée totale du film', 'Montage → − / + dans la barre de la timeline, ou onglet Style → Durée du film'],
+  ['Changer la durée totale du film', 'Montage → − / + dans la barre de la timeline, ou onglet Film → Durée du film'],
   ['Déplacer un plan', 'Montage → Storyboard : glisser la vignette · ou Alt + ← / →'],
-  ['Réunir 2 à 4 photos sur une image', 'Storyboard : déposer une vignette sur une autre · réglage dans Style'],
+  ['Réunir 2 à 4 photos sur une image', 'Storyboard : déposer une vignette sur une autre · réglage dans l’onglet Film'],
   ['Choisir l’entrée et la fin d’une vidéo', 'Montage → cliquer le plan → onglet Plan → barre de découpe (touches I et O)'],
   ['Remettre le montage à zéro', 'Montage → « Réinitialiser » (recréer ou vider)'],
   ['Remettre le montage dans l’ordre des dates', 'Montage → « Trier par date »'],
   ['Voir tout le montage', 'Montage → « Tout voir » (touche Z)'],
-  ['Changer l’ambiance, les couleurs, le format', 'Montage → onglet Style'],
+  ['Changer l’ambiance, les couleurs, le format', 'Montage → onglet Film'],
   ['Musique', 'Montage → onglet Musique (composée sur l’appareil ou votre morceau)'],
   ['Retrouver un projet', 'Bouton « Projets » en haut (enregistrement automatique)'],
 ];

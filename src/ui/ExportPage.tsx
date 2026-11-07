@@ -3,6 +3,7 @@ import { mediaMap, musicBuffer, playhead, project, timeline, toast, musicBusy } 
 import { prepareMusic } from '../state/actions';
 import { grantPendingAccess, pendingAccess } from '../state/persist';
 import { EXPORT_PRESETS, dimsFor, ASPECTS } from '../presets';
+import type { AspectId } from '../types';
 import type { Container, ExportDest, ExportJob, QualityLevel } from '../export/exporter';
 const loadExporter = () => lazy(() => import('../export/exporter'));
 import { lazy } from '../lazy';
@@ -26,7 +27,8 @@ const BITRATE_EST: Record<QualityLevel, number> = { standard: 0.07, high: 0.12, 
 export function ExportPage() {
   const p = project.value;
   const { total, placed } = timeline.value;
-  const [sel, setSel] = useState<string[]>(['proj-1080']);
+  const [res, setRes] = useState(1080);
+  const [extra, setExtra] = useState<string[]>([]);
   const [container, setContainer] = useState<Container>('mp4');
   const [fps, setFps] = useState(30);
   const [quality, setQuality] = useState<QualityLevel>('high');
@@ -47,12 +49,15 @@ export function ExportPage() {
   }, []);
   useEffect(() => () => done.forEach((d) => URL.revokeObjectURL(d.url)), []);
 
-  const jobs: ExportJob[] = sel.map((id) => {
-    const pr = EXPORT_PRESETS.find((x) => x.id === id)!;
-    const aspect = pr.aspect === 'project' ? p.aspect : pr.aspect;
-    const { w, h } = dimsFor(aspect, pr.short);
-    return { label: pr.label, width: w, height: h, fps, container, quality, audio };
-  });
+  const main = dimsFor(p.aspect, res);
+  const jobs: ExportJob[] = [
+    { label: `${ASPECTS[p.aspect].label} · ${res === 2160 ? '4K' : res + 'p'}`, width: main.w, height: main.h, fps, container, quality, audio },
+    ...extra.map((id) => {
+      const pr = EXPORT_PRESETS.find((x) => x.id === id)!;
+      const { w, h } = dimsFor(pr.aspect === 'project' ? p.aspect : pr.aspect, pr.short);
+      return { label: pr.label, width: w, height: h, fps, container, quality, audio };
+    }),
+  ];
   // médias du montage dont le fichier d'origine n'est pas accessible (export en basse définition sinon)
   const usedIds = new Set(p.clips.flatMap((c) => (c.type === 'media' || c.background === 'blur' ? [c.mediaId, ...(c.extra ?? [])] : [])).filter(Boolean) as string[]);
   const unavailable = [...usedIds].map((id) => mediaMap.value.get(id)).filter((m) => m && !m.file && !m.demo).length;
@@ -199,13 +204,13 @@ export function ExportPage() {
     <div class="export-page">
       <section class="panel export-main">
         <h2 class="page-title">
-          <Icon name="download" /> Exporter le film
+          Exporter <small>{ASPECTS[p.aspect].label}</small>
         </h2>
         {unavailable > 0 && (
           <div class="alert alert-warn">
             <Icon name="info" />
             <div>
-              <b>{unavailable} média(s) du montage ne sont pas accessibles</b> (fichiers déplacés, ou accès aux dossiers à réautoriser). Ils seraient exportés en basse définition à partir de leur vignette.
+              <b>{unavailable} média(s) inaccessible(s)</b> : ils seraient exportés en basse définition.
               {pendingAccess.value.length > 0 && (
                 <div style={{ marginTop: '8px' }}>
                   <button class="btn btn-primary btn-sm" onClick={() => void grantPendingAccess()}>
@@ -218,78 +223,96 @@ export function ExportPage() {
         )}
         {!webcodecs && (
           <div class="alert">
-            <Icon name="info" /> Ce navigateur ne propose pas l’encodage vidéo matériel (WebCodecs). Utilisez une version récente de Chrome, Edge, Safari (17+) ou Firefox (130+).
+            <Icon name="info" /> Export impossible dans ce navigateur : utilisez Chrome, Edge ou Safari récent.
           </div>
         )}
-        <h4 class="side-title">Formats (sélection multiple)</h4>
-        <div class="preset-grid">
-          {EXPORT_PRESETS.map((pr) => {
-            const aspect = pr.aspect === 'project' ? p.aspect : pr.aspect;
-            const { w, h } = dimsFor(aspect, pr.short);
-            const on = sel.includes(pr.id);
-            const a = ASPECTS[aspect];
+        <h4 class="side-title">Qualité</h4>
+        <div class="res-pick">
+          {[
+            { v: 720, label: '720p', sub: 'Léger' },
+            { v: 1080, label: 'Full HD', sub: '1080p' },
+            { v: 2160, label: '4K', sub: '2160p' },
+          ].map((o) => {
+            const d = dimsFor(p.aspect, o.v);
             return (
-              <button class={'preset' + (on ? ' on' : '')} onClick={() => setSel(on ? sel.filter((x) => x !== pr.id) : [...sel, pr.id])}>
-                <span class="preset-frame">
-                  <i style={{ aspectRatio: `${a.w} / ${a.h}` }} />
-                </span>
-                <span class="preset-txt">
-                  <b>{pr.label}</b>
-                  <small>
-                    {w} × {h} · {pr.hint}
-                  </small>
-                </span>
-                <span class="preset-check">{on && <Icon name="check" size={14} />}</span>
+              <button class={'res' + (res === o.v ? ' on' : '')} onClick={() => setRes(o.v)}>
+                <b>{o.label}</b>
+                <small>
+                  {d.w} × {d.h}
+                </small>
               </button>
             );
           })}
         </div>
-        <div class="export-opts">
-          <div>
-            <h4 class="side-title">Conteneur</h4>
-            <Segmented<Container>
-              value={container}
-              onChange={setContainer}
-              options={[
-                { value: 'mp4', label: `MP4${codecs?.mp4 ? ' · ' + codecs.mp4 : ''}` },
-                { value: 'webm', label: `WebM${codecs?.webm ? ' · ' + codecs.webm : ''}` },
-              ]}
-            />
+        <details class="adv">
+          <summary class="side-title">Autres formats en plus{extra.length ? ` · ${extra.length}` : ''}</summary>
+          <div class="preset-grid">
+            {EXPORT_PRESETS.filter((pr) => pr.aspect !== 'project' && pr.aspect !== p.aspect).map((pr) => {
+              const { w, h } = dimsFor(pr.aspect as AspectId, pr.short);
+              const on = extra.includes(pr.id);
+              const a = ASPECTS[pr.aspect as AspectId];
+              return (
+                <button class={'preset' + (on ? ' on' : '')} onClick={() => setExtra(on ? extra.filter((x) => x !== pr.id) : [...extra, pr.id])}>
+                  <span class="preset-frame">
+                    <i style={{ aspectRatio: `${a.w} / ${a.h}` }} />
+                  </span>
+                  <span class="preset-txt">
+                    <b>{pr.label}</b>
+                    <small>
+                      {w} × {h}
+                    </small>
+                  </span>
+                  <span class="preset-check">{on && <Icon name="check" size={14} />}</span>
+                </button>
+              );
+            })}
           </div>
-          <div>
-            <h4 class="side-title">Images / seconde</h4>
-            <Segmented<number>
-              value={fps}
-              onChange={setFps}
-              options={[24, 25, 30, 50, 60].map((v) => ({ value: v, label: String(v) }))}
-            />
-          </div>
-          <div>
-            <h4 class="side-title">Qualité</h4>
-            <Segmented<QualityLevel>
-              value={quality}
-              onChange={setQuality}
-              options={[
-                { value: 'standard', label: 'Standard' },
-                { value: 'high', label: 'Haute' },
-                { value: 'max', label: 'Maximale' },
-              ]}
-            />
-          </div>
-          <div>
-            <Toggle label="Inclure le son" hint="Musique + son des vidéos" checked={audio} onChange={setAudio} />
-          </div>
-          {canPickDir && (
+        </details>
+        <details class="adv">
+          <summary class="side-title">Réglages avancés</summary>
+          <div class="export-opts">
             <div>
-              <Toggle
-                label="Enregistrer directement dans un dossier"
-                hint="Recommandé, indispensable pour les films longs : le fichier est écrit au fur et à mesure"
-                checked={toFolder}
-                onChange={setToFolder}
+              <h4 class="side-title">Fichier</h4>
+              <Segmented<Container>
+                value={container}
+                onChange={setContainer}
+                options={[
+                  { value: 'mp4', label: `MP4${codecs?.mp4 ? ' · ' + codecs.mp4 : ''}` },
+                  { value: 'webm', label: `WebM${codecs?.webm ? ' · ' + codecs.webm : ''}` },
+                ]}
               />
             </div>
-          )}
-        </div>
+            <div>
+              <h4 class="side-title">Images / seconde</h4>
+              <Segmented<number> value={fps} onChange={setFps} options={[24, 25, 30, 50, 60].map((v) => ({ value: v, label: String(v) }))} />
+            </div>
+            <div>
+              <h4 class="side-title">Compression</h4>
+              <Segmented<QualityLevel>
+                value={quality}
+                onChange={setQuality}
+                options={[
+                  { value: 'standard', label: 'Légère' },
+                  { value: 'high', label: 'Haute' },
+                  { value: 'max', label: 'Maximale' },
+                ]}
+              />
+            </div>
+            <div>
+              <Toggle label="Son" checked={audio} onChange={setAudio} />
+            </div>
+            {canPickDir && (
+              <div>
+                <Toggle label="Enregistrer dans un dossier" hint="Conseillé pour les films longs" checked={toFolder} onChange={setToFolder} />
+              </div>
+            )}
+            <div>
+              <button class="btn btn-quiet btn-sm" disabled={!placed.length} onClick={still}>
+                <Icon name="camera" size={15} /> Image fixe 4K
+              </button>
+            </div>
+          </div>
+        </details>
       </section>
 
       <aside class="panel export-side">
@@ -297,14 +320,6 @@ export function ExportPage() {
           <div>
             <span>Durée</span>
             <b>{fmtDuration(total)}</b>
-          </div>
-          <div>
-            <span>Plans</span>
-            <b>{placed.length}</b>
-          </div>
-          <div>
-            <span>Fichiers</span>
-            <b>{jobs.length}</b>
           </div>
           <div>
             <span>Taille estimée</span>
@@ -333,22 +348,11 @@ export function ExportPage() {
         ) : (
           <>
             <button class="btn btn-primary btn-lg btn-block" disabled={!jobs.length || !placed.length || !webcodecs || musicBusy.value} onClick={start}>
-              <Icon name="film" /> Lancer l’export {jobs.length > 1 ? `(${jobs.length} fichiers)` : ''}
-            </button>
-            <button class="btn btn-ghost btn-block" disabled={!placed.length} onClick={still}>
-              <Icon name="camera" size={16} /> Image fixe 4K (tête de lecture)
+              <Icon name="download" /> Exporter {jobs.length > 1 ? `(${jobs.length} fichiers)` : ''}
             </button>
           </>
         )}
-        {isMobile && !run && (
-          <p class="side-note mobile-tip">
-            <Icon name="info" size={13} /> Sur téléphone : gardez l’app affichée pendant l’export (l’écran reste allumé). À la fin, touchez « Enregistrer la vidéo » pour la mettre dans Photos.
-          </p>
-        )}
-        <p class="side-note">
-          Le rendu est calculé image par image sur votre appareil (aucun envoi en ligne). Gardez cet onglet ouvert pendant l’export.
-          {canPickDir && toFolder ? ' Au lancement, choisissez le dossier où écrire le film.' : ' Le fichier sera proposé au téléchargement à la fin.'}
-        </p>
+        {isMobile && !run && <p class="side-note mobile-tip">Gardez l’app ouverte pendant l’export.</p>}
         {done.length > 0 && (
           <div class="done-list">
             <h4 class="side-title">Fichiers exportés</h4>

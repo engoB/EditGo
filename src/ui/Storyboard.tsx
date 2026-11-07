@@ -126,7 +126,7 @@ export function Storyboard() {
   return (
     <div class="storyboard" ref={grid}>
       <p class="sb-hint">
-        <Icon name="info" size={13} /> Glissez une vignette entre deux autres pour la déplacer, ou sur une autre photo pour les réunir sur une même image (appui long sur écran tactile).
+        {typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? 'Appui long, puis glissez' : 'Glissez'} pour déplacer · sur une photo pour les réunir
       </p>
       <div class="sb-grid">
         {clips.map((c, i) => {
