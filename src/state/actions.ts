@@ -706,6 +706,41 @@ export function clearMontage() {
 }
 
 /** Définit le point d'entrée ou de sortie (temps source, s) d'un plan vidéo. */
+/** Mémorise l'extrait d'une vidéo (médiathèque) et l'applique aux plans du montage qui la montrent. */
+export function setMediaCut(id: string, a: number, b: number, history = true) {
+  const m = mediaMap.value.get(id);
+  if (!m || m.kind !== 'video') return;
+  const D = m.duration;
+  a = Math.max(0, Math.min(a, D - 0.2));
+  b = Math.max(a + 0.2, Math.min(b, D));
+  const full = a < 0.05 && b > D - 0.05;
+  m.cutIn = full ? undefined : Math.round(a * 100) / 100;
+  m.cutOut = full ? undefined : Math.round(b * 100) / 100;
+  touchMedia();
+  if (project.value.clips.some((c) => c.mediaId === id && c.type === 'media' && !c.extra?.length))
+    updateProject(
+      (p) => ({
+        clips: p.clips.map((c) =>
+          c.mediaId === id && c.type === 'media' && !c.extra?.length ? { ...c, trimIn: Math.round(a * 100) / 100, duration: Math.round(((b - a) / c.speed) * 100) / 100 } : c,
+        ),
+      }),
+      history,
+    );
+}
+
+/** Une découpe faite dans le montage devient l'extrait mémorisé de la vidéo (gardé si on recrée le film). */
+export function rememberCut(clipId: string) {
+  const c = project.value.clips.find((x) => x.id === clipId);
+  const m = c?.mediaId ? mediaMap.value.get(c.mediaId) : undefined;
+  if (!c || !m || m.kind !== 'video' || c.type !== 'media' || c.extra?.length) return;
+  const a = c.trimIn,
+    b = Math.min(m.duration, c.trimIn + c.duration * c.speed);
+  const full = a < 0.05 && b > m.duration - 0.05;
+  m.cutIn = full ? undefined : a;
+  m.cutOut = full ? undefined : Math.round(b * 100) / 100;
+  touchMedia();
+}
+
 export function setVideoBounds(clipId: string, inT: number | null, outT: number | null) {
   const p = project.value;
   const c = p.clips.find((x) => x.id === clipId);
@@ -717,4 +752,5 @@ export function setVideoBounds(clipId: string, inT: number | null, outT: number 
   a = Math.max(0, Math.min(a, m.duration - 0.2));
   b = Math.max(a + 0.2, Math.min(b, m.duration));
   updateClip(clipId, { trimIn: Math.round(a * 100) / 100, duration: Math.round(((b - a) / c.speed) * 100) / 100 });
+  rememberCut(clipId);
 }

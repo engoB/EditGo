@@ -1,6 +1,7 @@
 // Allonger ou raccourcir le film entier en conservant les proportions du montage.
 import type { Clip, MediaItem } from '../types';
 import { layout } from './timeline';
+import { cutOf } from '../media/cut';
 
 const MIN = 0.8;
 const MAX_STILL = 20;
@@ -8,8 +9,12 @@ const MAX_STILL = 20;
 function bounds(c: Clip, media: Map<string, MediaItem>): { min: number; max: number; video: MediaItem | null } {
   const m = c.mediaId ? media.get(c.mediaId) : undefined;
   if (c.type === 'media' && m?.kind === 'video') {
-    // une vidéo peut s'allonger jusqu'à sa longueur totale (en reculant son point d'entrée si besoin)
-    return { min: Math.min(MIN, m.duration / c.speed), max: Math.max(MIN, m.duration / c.speed), video: m };
+    // une vidéo peut s'allonger jusqu'à son extrait choisi (toute la vidéo par défaut),
+    // et au moins jusqu'à sa durée actuelle dans le montage
+    const cut = cutOf(m);
+    const cur = c.duration * c.speed;
+    const span = Math.max(cut.len, Math.min(m.duration, cur));
+    return { min: Math.min(MIN, span / c.speed), max: Math.max(MIN, span / c.speed), video: m };
   }
   return { min: MIN, max: MAX_STILL, video: null };
 }
@@ -21,7 +26,10 @@ function apply(base: Clip[], media: Map<string, MediaItem>, k: number): Clip[] {
     if (!b.video) return { ...c, duration: d };
     // vidéo : on garde le point d'entrée, et on le recule seulement si la fin dépasse la vidéo
     const span = d * c.speed;
-    const trimIn = Math.max(0, Math.min(c.trimIn, b.video.duration - span));
+    const cut = cutOf(b.video);
+    const lo = c.trimIn >= cut.a - 0.01 ? cut.a : 0,
+      hi = c.trimIn + c.duration * c.speed <= cut.b + 0.01 ? cut.b : b.video.duration;
+    const trimIn = Math.max(lo, Math.min(c.trimIn, hi - span));
     return { ...c, duration: d, trimIn };
   });
 }

@@ -44,11 +44,12 @@ export const musicBusy = signal(false);
 export const timelineZoom = signal(60); // px par seconde
 /** Petit écran (téléphone) : mise en page tactile. */
 export const isCompact = () => typeof matchMedia === 'function' && matchMedia('(max-width: 760px)').matches;
-export const timelineView = signal<'timeline' | 'storyboard'>(
+export type TimelineView = 'timeline' | 'storyboard' | 'videos';
+export const timelineView = signal<TimelineView>(
   (() => {
     try {
       const v = localStorage.getItem('editgo-tlview');
-      if (v === 'timeline' || v === 'storyboard') return v;
+      if (v === 'timeline' || v === 'storyboard' || v === 'videos') return v;
     } catch {
       /* préférence absente */
     }
@@ -56,7 +57,7 @@ export const timelineView = signal<'timeline' | 'storyboard'>(
     return isCompact() ? 'storyboard' : 'timeline';
   })(),
 );
-export function setTimelineView(v: 'timeline' | 'storyboard') {
+export function setTimelineView(v: TimelineView) {
   timelineView.value = v;
   try {
     localStorage.setItem('editgo-tlview', v);

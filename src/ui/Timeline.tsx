@@ -19,6 +19,7 @@ import {
 } from '../state/store';
 import { autoCreate, clearMontage, retimeFilm, sortClipsByDate } from '../state/actions';
 import { Storyboard } from './Storyboard';
+import { VideoCuts, videoCount } from './VideoCuts';
 import { newClip } from '../story/auto';
 import { TRANSITIONS, THEMES } from '../presets';
 import { Icon } from './icons';
@@ -81,6 +82,7 @@ export function Timeline() {
   const { placed, total } = timeline.value;
   const zoom = timelineZoom.value;
   const media = mediaMap.value;
+  const nVideos = videoCount();
   const scroller = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: string; x: number; over: number } | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
@@ -350,6 +352,9 @@ export function Timeline() {
           <button class={timelineView.value === 'storyboard' ? 'on' : ''} onClick={() => setTimelineView('storyboard')}>
             Storyboard
           </button>
+          <button class={timelineView.value === 'videos' ? 'on' : ''} onClick={() => setTimelineView('videos')} title="Seulement les vidéos, avec leur découpe">
+            <Icon name="video" size={13} /> Vidéos{nVideos ? ` · ${nVideos}` : ''}
+          </button>
         </div>
         {timelineView.value === 'timeline' && (
           <>
@@ -371,7 +376,9 @@ export function Timeline() {
           </>
         )}
       </div>
-      {timelineView.value === 'storyboard' ? (
+      {timelineView.value === 'videos' ? (
+        <VideoCuts />
+      ) : timelineView.value === 'storyboard' ? (
         <Storyboard />
       ) : (
       <div class="tl-body">

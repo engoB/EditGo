@@ -10,11 +10,14 @@ export function videoStrip(m: MediaItem, n = 10): Promise<string[]> {
   if (!p) {
     p = (async () => {
       if (!m.file || !m.duration) return [];
-      const reader = await FrameReader.open(m.file, 200);
+      const reader = await FrameReader.open(m.file, 200, !m.decode);
       try {
-        const ts = Array.from({ length: n }, (_, i) => ((i + 0.5) / n) * reader.duration);
+        // accès direct à chaque position (depuis l'image clé voisine) : rapide même pour une longue vidéo
         const out: string[] = [];
-        for await (const f of reader.atTimestamps(ts)) out.push(f ? f.canvas.toDataURL('image/jpeg', 0.7) : '');
+        for (let i = 0; i < n; i++) {
+          const f = await reader.getCanvas(((i + 0.5) / n) * reader.duration).catch(() => null);
+          out.push(f ? f.canvas.toDataURL('image/jpeg', 0.7) : '');
+        }
         return out;
       } finally {
         reader.dispose();

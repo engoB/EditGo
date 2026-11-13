@@ -1,3 +1,4 @@
+import { cutOf } from '../media/cut';
 // Montage automatique « souvenir » : chapitres temporels, sélection des meilleurs
 // plans, rythme (calé sur le tempo de la musique), transitions et titres.
 import type { Clip, MediaItem, MotionId, Project, TransitionId } from '../types';
@@ -112,7 +113,7 @@ export function buildStory(items: MediaItem[], project: Project, gapHours: numbe
   const trans = theme.transitionDuration;
 
   // Estimation de la durée de chaque média puis sélection selon la durée cible.
-  const estimate = (m: MediaItem) => (m.kind === 'video' ? Math.min(m.duration, videoMax) : photoDur) - trans * 0.6;
+  const estimate = (m: MediaItem) => (m.kind === 'video' ? Math.min(cutOf(m).len, videoMax) : photoDur) - trans * 0.6;
   const fullLength = all.reduce((s, m) => s + estimate(m), 0);
   const target = !all_ && project.targetLength > 0 ? project.targetLength - 6 : Infinity;
   let selected = new Set(all.map((m) => m.id));
@@ -172,12 +173,14 @@ export function buildStory(items: MediaItem[], project: Project, gapHours: numbe
       let duration: number;
       let trimIn = 0;
       if (m.kind === 'video') {
-        const len = Math.min(m.duration, videoMax);
-        // segment central : on évite les premières secondes souvent tremblées
-        trimIn = all_ ? 0 : Math.max(0, Math.min(m.duration - len, m.duration * 0.12));
+        // extrait choisi dans la médiathèque (toute la vidéo par défaut)
+        const cut = cutOf(m);
+        const len = Math.min(cut.len, videoMax);
+        // segment central : on évite les premières secondes souvent tremblées (sauf extrait choisi)
+        trimIn = all_ || cut.set ? cut.a : cut.a + Math.max(0, Math.min(cut.len - len, cut.len * 0.12));
         // en mode « tous les médias », la vidéo garde toute sa longueur
         duration = all_ ? len : snap(len, beat, !!beat && len > beat);
-        if (trimIn + duration > m.duration) duration = Math.max(0.5, m.duration - trimIn);
+        if (trimIn + duration > cut.b) duration = Math.max(0.5, cut.b - trimIn);
       } else if (unit.length > 1) {
         // une mosaïque reste plus longtemps à l'écran : il y a plus à regarder
         duration = snap(photoDur * (1 + 0.3 * (unit.length - 1)), beat, !!beat);

@@ -3,6 +3,7 @@ import { importOpts, importing, media, movedIds, project } from '../state/store'
 import { addDroppedHandles, addFolderSource, addPickedFolders, autoCreate, forceInclude, importFiles, loadDemo, recomputeDuplicates, toggleExcluded, setMediaDate } from '../state/actions';
 import { SourcesPanel } from './Sources';
 import { CreatePanel, formatSummary } from './CreatePanel';
+import { MediaCuts } from './MediaCuts';
 import { MediaViewer } from './MediaViewer';
 import { RecentProjects } from './Projects';
 import { buildStory, usable } from '../story/auto';
@@ -432,14 +433,16 @@ export function MediaPage() {
             options={[
               { value: 'all', label: `Tout · ${items.length}` },
               { value: 'photo', label: 'Photos' },
-              { value: 'video', label: 'Vidéos' },
+              { value: 'video', label: `Vidéos · ${stats.videos}` },
               { value: 'dups', label: `Doublons · ${stats.dups + stats.sim}` },
               { value: 'excluded', label: `Exclus · ${stats.excluded}` },
             ]}
           />
         </div>
         <div class={'media-scroll' + (whole ? ' whole' : '')} style={{ '--tile': tile + 'px' }}>
-          {groups
+          {filter === 'video' && <MediaCuts items={visible} />}
+          {filter !== 'video' &&
+            groups
             .filter((g) => g.items.length)
             .map((g) => (
               <div class="mgroup">
@@ -462,7 +465,7 @@ export function MediaPage() {
                 </div>
               </div>
             ))}
-          {!visible.length && <div class="empty-note">Rien à afficher pour ce filtre.</div>}
+          {!visible.length && filter !== 'video' && <div class="empty-note">Rien à afficher pour ce filtre.</div>}
         </div>
       </section>
 

@@ -4486,3 +4486,176 @@ label {
   max-height: 100%;
   overflow: auto;
 }
+
+/* ---------- Montage : vue « Vidéos » (découpe début / fin) ---------- */
+.vcuts {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+.vc-empty {
+  padding: 30px;
+  text-align: center;
+  color: var(--muted);
+}
+.vc {
+  border: 1px solid var(--line2);
+  border-radius: 10px;
+  background: var(--bg2);
+}
+.vc.open {
+  border-color: var(--accent);
+}
+.vc-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 6px 6px;
+  text-align: left;
+}
+.vc-head img,
+.vc-ph {
+  width: 64px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex: none;
+  background: var(--panel3);
+}
+.vc-txt {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.vc-txt b {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vc-txt small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.vc-txt em {
+  font-style: normal;
+  color: var(--text);
+  font-weight: 600;
+}
+.vc-range {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line2);
+}
+.vc-range i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.vc-chev {
+  color: var(--muted);
+  flex: none;
+}
+.vc-body {
+  padding: 4px 10px 10px;
+  display: grid;
+  gap: 8px;
+}
+.vc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.vc-del {
+  margin-left: auto;
+}
+.vc .trimbox {
+  margin: 0;
+}
+.view-seg button .ico {
+  vertical-align: -2px;
+}
+/* écrans tactiles : poignées de découpe plus faciles à attraper */
+@media (pointer: coarse) {
+  .trim-bar {
+    height: 64px;
+  }
+  .trim-h {
+    width: 30px;
+    margin-left: -15px;
+  }
+  .trim-h i {
+    width: 10px;
+  }
+}
+
+/* ---------- Médias : découpe des vidéos avant création ---------- */
+.mcuts {
+  display: grid;
+  gap: 6px;
+  max-width: 1100px;
+}
+.mc.off .vc-head img {
+  opacity: 0.45;
+}
+.mc-body {
+  display: grid;
+  grid-template-columns: minmax(220px, 340px) minmax(0, 1fr);
+  gap: 12px;
+  padding: 4px 10px 8px;
+  align-items: start;
+}
+.mc-preview {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.mc-preview canvas {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  grid-area: 1 / 1;
+}
+.mc-play {
+  grid-area: 1 / 1;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  z-index: 1;
+}
+.mc-msg {
+  color: var(--muted);
+  font-size: 12px;
+}
+.mc-side {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.mc-foot {
+  padding: 0 10px 8px;
+}
+@media (max-width: 760px) {
+  .mc-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

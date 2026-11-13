@@ -3,6 +3,7 @@ import {
   mediaMap,
   media,
   mobilePanel,
+  timelineView,
   musicBusy,
   musicBuffer,
   beginGesture,
@@ -818,7 +819,7 @@ export function EditPage() {
           </button>
         ))}
       </nav>
-      {mp === 'viewer' && <ClipBar />}
+      {mp === 'viewer' && timelineView.value !== 'videos' && <ClipBar />}
     </div>
   );
 }

@@ -49,6 +49,9 @@ export interface MediaItem {
   height: number;
   duration: number; // s (vidéos)
   hasAudio: boolean;
+  /** Extrait choisi dans la médiathèque (s) : utilisé par la création automatique. */
+  cutIn?: number;
+  cutOut?: number;
   thumb: string; // object URL (vignette)
   hash: string; // empreinte exacte
   phash: string; // empreinte perceptuelle (dHash 64 bits, hex)
