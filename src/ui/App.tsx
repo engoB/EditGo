@@ -10,6 +10,19 @@ import { ExportPage } from './ExportPage';
 import { Icon } from './icons';
 import { Toasts } from './controls';
 
+/** Charge la dernière version : le cache hors ligne est remplacé (projets et médias conservés). */
+async function forceUpdate() {
+  try {
+    const regs = (await navigator.serviceWorker?.getRegistrations?.()) ?? [];
+    await Promise.all(regs.map((r) => r.unregister()));
+    // seuls les fichiers de l'application sont effacés, jamais les projets (IndexedDB / disque du navigateur)
+    if ('caches' in window) for (const k of await caches.keys()) if (k.includes('workbox') || k.includes('precache')) await caches.delete(k);
+  } catch {
+    /* rechargement simple */
+  }
+  location.reload();
+}
+
 const fmtShort = (s: number) => {
   const r = Math.round(s);
   return r >= 3600 ? `${Math.floor(r / 3600)} h ${String(Math.floor((r % 3600) / 60)).padStart(2, '0')}` : `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`;
@@ -183,8 +196,8 @@ export function App() {
       {updateReady.value && (
         <div class="access-banner update-banner">
           <Icon name="refresh" size={16} />
-          <span>Une nouvelle version d’EditGo est disponible. Votre projet est enregistré : rechargez pour l’utiliser.</span>
-          <button class="btn btn-primary btn-sm" onClick={() => location.reload()}>
+          <span>Nouvelle version d’EditGo disponible (vos projets sont conservés).</span>
+          <button class="btn btn-primary btn-sm" onClick={() => void forceUpdate()}>
             Recharger
           </button>
         </div>

@@ -15,6 +15,7 @@ import {
   saveState,
   savedAt,
   openProgress,
+  skipOpeningWait,
   storageEstimate,
   type ProjectMeta,
 } from '../state/persist';
@@ -64,6 +65,12 @@ async function open(id: string) {
 /** Fenêtre de progression pendant l'ouverture d'un projet. */
 export function OpeningOverlay() {
   const op = openProgress.value;
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!op) return setSlow(false);
+    const t = setTimeout(() => setSlow(true), 10000);
+    return () => clearTimeout(t);
+  }, [!!op]);
   if (!op) return null;
   return (
     <div class="modal-back opening">
@@ -75,6 +82,11 @@ export function OpeningOverlay() {
         <small>
           {op.phase && op.phase !== 'Médias' ? op.phase + '…' : `${op.done} / ${op.total} médias`}
         </small>
+        {slow && (
+          <button class="btn btn-ghost btn-sm" onClick={skipOpeningWait}>
+            Continuer sans attendre les fichiers
+          </button>
+        )}
       </div>
     </div>
   );

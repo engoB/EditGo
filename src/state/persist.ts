@@ -2,13 +2,26 @@
 //  - IndexedDB : liste des projets (métadonnées) et contenu (montage, médias, réglages) ;
 //  - Origin Private File System (ou IndexedDB en repli) : copie des fichiers médias,
 //    dédupliquée par empreinte, pour rouvrir un projet sans réimporter.
-import { batch, effect, signal } from '@preact/signals';
-import type { ImportOptions, MediaItem, MediaSource, Project } from '../types';
-import { ensurePermission } from '../media/sources';
-import { importOpts, media, musicBuffer, musicFile, page, playhead, project, resetHistory, selectedClip, sources, timeline, defaultProject } from './store';
-import { demoDrawer } from '../media/demo';
-import { safeTransition } from '../presets';
-import { uid } from '../util';
+import { batch, effect, signal } from "@preact/signals";
+import type { ImportOptions, MediaItem, MediaSource, Project } from "../types";
+import { ensurePermission } from "../media/sources";
+import {
+  importOpts,
+  media,
+  musicBuffer,
+  musicFile,
+  page,
+  playhead,
+  project,
+  resetHistory,
+  selectedClip,
+  sources,
+  timeline,
+  defaultProject,
+} from "./store";
+import { demoDrawer } from "../media/demo";
+import { safeTransition } from "../presets";
+import { uid } from "../util";
 
 export interface ProjectMeta {
   id: string;
@@ -21,7 +34,7 @@ export interface ProjectMeta {
   cover: Blob | null;
 }
 
-type StoredMedia = Omit<MediaItem, 'file' | 'demo' | 'thumb'> & {
+type StoredMedia = Omit<MediaItem, "file" | "demo" | "thumb"> & {
   fileKey: string | null;
   fileType: string;
   lastModified: number;
@@ -39,31 +52,62 @@ interface ProjectData {
 }
 
 export const currentProjectId = signal<string | null>(null);
-export const saveState = signal<'idle' | 'saving' | 'saved' | 'error'>('idle');
-export const saveProgress = signal<{ done: number; total: number } | null>(null);
+export const saveState = signal<"idle" | "saving" | "saved" | "error">("idle");
+export const saveProgress = signal<{ done: number; total: number } | null>(
+  null,
+);
 /** Heure du dernier enregistrement réussi. */
 export const savedAt = signal<number>(0);
 /** Ouverture d'un projet en cours (progression affichée). */
-export const openProgress = signal<{ name: string; done: number; total: number; phase?: string } | null>(null);
+export const openProgress = signal<{
+  name: string;
+  done: number;
+  total: number;
+  phase?: string;
+} | null>(null);
+// ouverture : aucune étape ne peut bloquer indéfiniment (délai maximal, ou « Continuer sans attendre »)
+let skipResolve: (() => void) | null = null;
+let skipPromise: Promise<void> = new Promise(() => null);
+export function skipOpeningWait() {
+  skipResolve?.();
+}
+function within<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    p.catch(() => fallback),
+    new Promise<T>((r) => setTimeout(() => r(fallback), ms)),
+    skipPromise.then(() => fallback),
+  ]);
+}
 const phase = (ph: string) => {
   const op = openProgress.peek();
   if (op) openProgress.value = { ...op, phase: ph };
-  console.info('[editgo] ouverture :', ph, Math.round(performance.now()));
+  console.info("[editgo] ouverture :", ph, Math.round(performance.now()));
 };
 export const projectsRev = signal(0);
 /** Dossiers mémorisés dont l'accès doit être réautorisé (clic requis par le navigateur). */
 export const pendingAccess = signal<MediaSource[]>([]);
-const DEFAULT_OPTS: ImportOptions = { nearDuplicates: true, similarity: 8, chapterGapHours: 4, skipJunk: true };
+const DEFAULT_OPTS: ImportOptions = {
+  nearDuplicates: true,
+  similarity: 8,
+  chapterGapHours: 4,
+  skipJunk: true,
+};
 
 // ---------- IndexedDB ----------
 let dbp: Promise<IDBDatabase> | null = null;
 function db(): Promise<IDBDatabase> {
   dbp ??= new Promise((res, rej) => {
-    const r = indexedDB.open('editgo', 2);
+    const r = indexedDB.open("editgo", 2);
     r.onupgradeneeded = () => {
       const d = r.result;
-      for (const [n, k] of [['meta', 'id'], ['data', 'id'], ['blobs', ''], ['handles', '']] as const)
-        if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, k ? { keyPath: k } : undefined);
+      for (const [n, k] of [
+        ["meta", "id"],
+        ["data", "id"],
+        ["blobs", ""],
+        ["handles", ""],
+      ] as const)
+        if (!d.objectStoreNames.contains(n))
+          d.createObjectStore(n, k ? { keyPath: k } : undefined);
     };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
@@ -76,21 +120,27 @@ function req<T>(r: IDBRequest<T>): Promise<T> {
     r.onerror = () => rej(r.error);
   });
 }
-async function store(name: 'meta' | 'data' | 'blobs' | 'handles', mode: IDBTransactionMode = 'readonly') {
+async function store(
+  name: "meta" | "data" | "blobs" | "handles",
+  mode: IDBTransactionMode = "readonly",
+) {
   return (await db()).transaction(name, mode).objectStore(name);
 }
 
 // ---------- Fichiers médias ----------
-const keyOf = (m: MediaItem) => (m.hash ? m.hash.replace(/[^a-z0-9]/gi, '-').slice(0, 120) : `${m.size}-${m.name}`.replace(/[^a-z0-9.]/gi, '-'));
+const keyOf = (m: MediaItem) =>
+  m.hash
+    ? m.hash.replace(/[^a-z0-9]/gi, "-").slice(0, 120)
+    : `${m.size}-${m.name}`.replace(/[^a-z0-9.]/gi, "-");
 
 async function opfsDir(): Promise<FileSystemDirectoryHandle | null> {
   try {
     const root = await navigator.storage?.getDirectory?.();
     if (!root) return null;
-    const dir = await root.getDirectoryHandle('media', { create: true });
+    const dir = await root.getDirectoryHandle("media", { create: true });
     // l'écriture nécessite createWritable (Chrome, Edge, Firefox, Safari récents)
-    const probe = await dir.getFileHandle('.probe', { create: true });
-    if (!('createWritable' in probe)) return null;
+    const probe = await dir.getFileHandle(".probe", { create: true });
+    if (!("createWritable" in probe)) return null;
     return dir;
   } catch {
     return null;
@@ -112,7 +162,7 @@ async function hasBlob(key: string): Promise<boolean> {
       }
       return false;
     }
-    const n = await req((await store('blobs')).count(key));
+    const n = await req((await store("blobs")).count(key));
     if (n) persisted.add(key);
     return n > 0;
   } catch {
@@ -125,11 +175,15 @@ async function putBlob(key: string, blob: Blob) {
   const dir = await mediaDir();
   if (dir) {
     const h = await dir.getFileHandle(key, { create: true });
-    const w = await (h as FileSystemFileHandle & { createWritable(): Promise<FileSystemWritableFileStream> }).createWritable();
+    const w = await (
+      h as FileSystemFileHandle & {
+        createWritable(): Promise<FileSystemWritableFileStream>;
+      }
+    ).createWritable();
     await w.write(blob);
     await w.close();
   } else {
-    await req((await store('blobs', 'readwrite')).put(blob, key));
+    await req((await store("blobs", "readwrite")).put(blob, key));
   }
   persisted.add(key);
 }
@@ -141,7 +195,9 @@ async function getBlob(key: string): Promise<Blob | null> {
       const f = await (await dir.getFileHandle(key)).getFile();
       return f.size ? f : null;
     }
-    return ((await req((await store('blobs')).get(key))) as Blob | undefined) ?? null;
+    return (
+      ((await req((await store("blobs")).get(key))) as Blob | undefined) ?? null
+    );
   } catch {
     return null;
   }
@@ -152,7 +208,7 @@ async function deleteBlob(key: string) {
   const dir = await mediaDir();
   try {
     if (dir) await dir.removeEntry(key);
-    else await req((await store('blobs', 'readwrite')).delete(key));
+    else await req((await store("blobs", "readwrite")).delete(key));
   } catch {
     /* déjà absent */
   }
@@ -182,7 +238,7 @@ async function serializeMedia(items: MediaItem[]): Promise<StoredMedia[]> {
       return {
         ...rest,
         fileKey: file ? keyOf(m) : null,
-        fileType: file?.type ?? '',
+        fileType: file?.type ?? "",
         lastModified: file?.lastModified ?? 0,
       };
     }),
@@ -197,8 +253,11 @@ async function saveThumbs(items: MediaItem[]) {
   const blobs = await Promise.all(todo.map((m) => thumbBlob(m)));
   const d = await db();
   await new Promise<void>((res, rej) => {
-    const tx = d.transaction('blobs', 'readwrite');
-    todo.forEach((m, i) => blobs[i] && tx.objectStore('blobs').put(blobs[i], 'thumb:' + m.id));
+    const tx = d.transaction("blobs", "readwrite");
+    todo.forEach(
+      (m, i) =>
+        blobs[i] && tx.objectStore("blobs").put(blobs[i], "thumb:" + m.id),
+    );
     tx.oncomplete = () => res();
     tx.onerror = () => rej(tx.error);
   });
@@ -211,19 +270,27 @@ export function invalidateThumb(id: string) {
 }
 
 async function coverOf(items: MediaItem[]): Promise<Blob | null> {
-  const best = [...items].filter((m) => m.thumb && !m.duplicateOf && !m.similarTo && !m.error).sort((a, b) => b.score - a.score)[0];
+  const best = [...items]
+    .filter((m) => m.thumb && !m.duplicateOf && !m.similarTo && !m.error)
+    .sort((a, b) => b.score - a.score)[0];
   return best ? thumbBlob(best) : null;
 }
 
 /** Mise à niveau des anciens projets (transitions retirées → fondu enchaîné). */
 function migrateProject(p: Project): Project {
-  return { ...p, clips: p.clips.map((c) => ({ ...c, transition: safeTransition(c.transition) })) };
+  return {
+    ...p,
+    clips: p.clips.map((c) => ({
+      ...c,
+      transition: safeTransition(c.transition),
+    })),
+  };
 }
 
 // ---------- API ----------
 export async function listProjects(): Promise<ProjectMeta[]> {
   try {
-    const all = (await req((await store('meta')).getAll())) as ProjectMeta[];
+    const all = (await req((await store("meta")).getAll())) as ProjectMeta[];
     return all.sort((a, b) => b.updated - a.updated);
   } catch {
     return [];
@@ -251,24 +318,41 @@ export async function saveCurrent(): Promise<void> {
 async function doSave() {
   const items = media.value;
   if (!items.length && !project.value.clips.length) return;
-  saveState.value = 'saving';
+  saveState.value = "saving";
   try {
     void navigator.storage?.persist?.();
     const id = currentProjectId.value ?? uid();
     const p = project.value;
     const now = Date.now();
-    const prevMeta = (await req((await store('meta')).get(id))) as ProjectMeta | undefined;
+    const prevMeta = (await req((await store("meta")).get(id))) as
+      | ProjectMeta
+      | undefined;
     const data: ProjectData = {
       id,
       project: p,
       importOpts: importOpts.value,
       media: await serializeMedia(items),
-      sources: sources.value.map(({ handle: _h, ...x }) => (void _h, { ...x, linked: !!_h })),
-      music: musicFile.value ? { key: 'music-' + musicFile.value.size + '-' + musicFile.value.name.replace(/[^a-z0-9.]/gi, '-'), name: musicFile.value.name, type: musicFile.value.type } : null,
+      sources: sources.value.map(
+        ({ handle: _h, ...x }) => (void _h, { ...x, linked: !!_h }),
+      ),
+      music: musicFile.value
+        ? {
+            key:
+              "music-" +
+              musicFile.value.size +
+              "-" +
+              musicFile.value.name.replace(/[^a-z0-9.]/gi, "-"),
+            name: musicFile.value.name,
+            type: musicFile.value.type,
+          }
+        : null,
     };
     const meta: ProjectMeta = {
       id,
-      name: p.title || prevMeta?.name || 'Projet du ' + new Date(now).toLocaleDateString('fr-FR'),
+      name:
+        p.title ||
+        prevMeta?.name ||
+        "Projet du " + new Date(now).toLocaleDateString("fr-FR"),
       created: prevMeta?.created ?? now,
       updated: now,
       duration: timeline.value.total,
@@ -278,24 +362,25 @@ async function doSave() {
     };
     const d = await db();
     await new Promise<void>((res, rej) => {
-      const tx = d.transaction(['meta', 'data', 'handles'], 'readwrite');
-      tx.objectStore('meta').put(meta);
-      tx.objectStore('data').put(data);
+      const tx = d.transaction(["meta", "data", "handles"], "readwrite");
+      tx.objectStore("meta").put(meta);
+      tx.objectStore("data").put(data);
       // accès aux dossiers : rangés à part, relus seulement à l'ouverture du projet
-      for (const x of sources.value) if (x.handle) tx.objectStore('handles').put(x.handle, id + ':' + x.id);
+      for (const x of sources.value)
+        if (x.handle) tx.objectStore("handles").put(x.handle, id + ":" + x.id);
       tx.oncomplete = () => res();
       tx.onerror = () => rej(tx.error);
     });
     if (!currentProjectId.value) currentProjectId.value = id;
     await saveThumbs(items);
     projectsRev.value++;
-    saveState.value = 'saved';
+    saveState.value = "saved";
     savedAt.value = Date.now();
     void copyMedia(items, data.music ? data.music.key : null);
   } catch (e) {
     console.error(e);
     saveProgress.value = null;
-    saveState.value = 'error';
+    saveState.value = "error";
   }
 }
 
@@ -309,11 +394,20 @@ async function copyMedia(items: MediaItem[], musicKey: string | null) {
   copying = true;
   try {
     if (musicKey && musicFile.value) await putBlob(musicKey, musicFile.value);
-    const linked = new Set(sources.value.filter((x) => x.handle).map((x) => x.id));
-    const todo = items.filter((m) => m.file && m.file.size <= 150 * 1024 * 1024 && !(m.sourceId && linked.has(m.sourceId)) && !persisted.has(keyOf(m)));
+    const linked = new Set(
+      sources.value.filter((x) => x.handle).map((x) => x.id),
+    );
+    const todo = items.filter(
+      (m) =>
+        m.file &&
+        m.file.size <= 150 * 1024 * 1024 &&
+        !(m.sourceId && linked.has(m.sourceId)) &&
+        !persisted.has(keyOf(m)),
+    );
     for (let i = 0; i < todo.length; i++) {
       saveProgress.value = { done: i, total: todo.length };
-      if (!(await hasBlob(keyOf(todo[i])))) await putBlob(keyOf(todo[i]), todo[i].file!);
+      if (!(await hasBlob(keyOf(todo[i]))))
+        await putBlob(keyOf(todo[i]), todo[i].file!);
     }
   } catch (e) {
     console.error(e);
@@ -323,28 +417,40 @@ async function copyMedia(items: MediaItem[], musicKey: string | null) {
   }
 }
 
-async function restoreMedia(list: StoredMedia[], srcs: MediaSource[] = []): Promise<MediaItem[]> {
+async function restoreMedia(
+  list: StoredMedia[],
+  srcs: MediaSource[] = [],
+): Promise<MediaItem[]> {
   const thumbs = new Map<string, Blob>();
-  phase('Vignettes');
+  phase("Vignettes");
   try {
-    const st = await store('blobs');
-    await Promise.all(
-      list.map(async (x) => {
-        if (x.thumbBlob) return;
-        const b = (await req(st.get('thumb:' + x.id))) as Blob | undefined;
-        if (b) {
-          thumbs.set(x.id, b);
-          thumbSaved.add(x.id);
-        }
-      }),
+    const st = await store("blobs");
+    await within(
+      Promise.all(
+        list.map(async (x) => {
+          if (x.thumbBlob) return;
+          const b = (await req(st.get("thumb:" + x.id))) as Blob | undefined;
+          if (b) {
+            thumbs.set(x.id, b);
+            thumbSaved.add(x.id);
+          }
+        }),
+      ),
+      15000,
+      [],
     );
   } catch {
     /* vignettes indisponibles */
   }
   const granted = new Map<string, boolean>();
-  phase('Autorisations');
-  for (const x of srcs) if (x.handle) granted.set(x.id, await ensurePermission(x.handle, false));
-  phase('Médias');
+  phase("Autorisations");
+  for (const x of srcs)
+    if (x.handle)
+      granted.set(
+        x.id,
+        await within(ensurePermission(x.handle, false), 3000, false),
+      );
+  phase("Médias");
   let done = 0;
   const tick = () => {
     done++;
@@ -364,65 +470,105 @@ async function restoreMedia(list: StoredMedia[], srcs: MediaSource[] = []): Prom
   return out;
 
   async function restoreSafe(s: StoredMedia): Promise<MediaItem> {
-      try {
-        return await restoreOne(s);
-      } catch (e) {
-        // fichier illisible : le média reste dans le projet, signalé absent
-        console.warn('[editgo] média non restauré :', s.name, e);
-        const { fileKey: _k, fileType: _t, lastModified: _l, thumbBlob: _b, ...rest } = s;
-        void _k, void _t, void _l, void _b;
-        return { ...rest, file: null, thumb: '', missing: true } as MediaItem;
-      } finally {
-        tick();
-      }
+    try {
+      return await restoreOne(s);
+    } catch (e) {
+      // fichier illisible : le média reste dans le projet, signalé absent
+      console.warn("[editgo] média non restauré :", s.name, e);
+      const {
+        fileKey: _k,
+        fileType: _t,
+        lastModified: _l,
+        thumbBlob: _b,
+        ...rest
+      } = s;
+      (void _k, void _t, void _l, void _b);
+      return { ...rest, file: null, thumb: "", missing: true } as MediaItem;
+    } finally {
+      tick();
+    }
   }
 
   async function restoreOne(s: StoredMedia): Promise<MediaItem> {
-      const { fileKey, fileType, lastModified, thumbBlob: tb0, ...rest } = s;
-      const tb = tb0 ?? thumbs.get(s.id) ?? null;
-      const item: MediaItem = { ...rest, file: null, thumb: tb ? URL.createObjectURL(tb) : '' };
-      if (tb) thumbCache.set(item.thumb, tb);
-      const src = s.sourceId ? srcs.find((x) => x.id === s.sourceId) : undefined;
-      if (s.demoSpec) {
-        item.demo = demoDrawer(s.demoSpec, s.width, s.height);
-        return item;
-      }
-      const b = fileKey ? await getBlob(fileKey) : null;
-      if (b) {
-        persisted.add(fileKey!);
-        item.file = new File([b], s.name, { type: fileType || b.type, lastModified });
-        item.missing = false;
-      } else if (src?.handle) {
-        // fichier d'un dossier mémorisé : rattaché juste après l'ouverture, en arrière-plan, par
-        // l'actualisation du dossier (relire ici 1000+ fichiers un à un bloquait l'ouverture)
-        void granted;
-      } else if (fileKey) item.missing = true;
+    const { fileKey, fileType, lastModified, thumbBlob: tb0, ...rest } = s;
+    const tb = tb0 ?? thumbs.get(s.id) ?? null;
+    const item: MediaItem = {
+      ...rest,
+      file: null,
+      thumb: tb ? URL.createObjectURL(tb) : "",
+    };
+    if (tb) thumbCache.set(item.thumb, tb);
+    const src = s.sourceId ? srcs.find((x) => x.id === s.sourceId) : undefined;
+    if (s.demoSpec) {
+      item.demo = demoDrawer(s.demoSpec, s.width, s.height);
       return item;
+    }
+    const b = fileKey ? await within(getBlob(fileKey), 15000, null) : null;
+    if (b) {
+      persisted.add(fileKey!);
+      item.file = new File([b], s.name, {
+        type: fileType || b.type,
+        lastModified,
+      });
+      item.missing = false;
+    } else if (src?.handle) {
+      // fichier d'un dossier mémorisé : rattaché juste après l'ouverture, en arrière-plan, par
+      // l'actualisation du dossier (relire ici 1000+ fichiers un à un bloquait l'ouverture)
+      void granted;
+    } else if (fileKey) item.missing = true;
+    return item;
   }
 }
 
 export async function openProject(id: string) {
-  const data = (await req((await store('data')).get(id))) as ProjectData | undefined;
-  if (!data) throw new Error('projet introuvable dans ce navigateur');
-  if (!data.project || !Array.isArray(data.project.clips) || !Array.isArray(data.media)) throw new Error('données du projet incomplètes');
-  const meta = (await req((await store('meta')).get(id)).catch(() => undefined)) as ProjectMeta | undefined;
-  openProgress.value = { name: meta?.name || data.project.title || 'Projet', done: 0, total: data.media.length };
+  const data = (await req((await store("data")).get(id))) as
+    | ProjectData
+    | undefined;
+  if (!data) throw new Error("projet introuvable dans ce navigateur");
+  if (
+    !data.project ||
+    !Array.isArray(data.project.clips) ||
+    !Array.isArray(data.media)
+  )
+    throw new Error("données du projet incomplètes");
+  const meta = (await req((await store("meta")).get(id)).catch(
+    () => undefined,
+  )) as ProjectMeta | undefined;
+  openProgress.value = {
+    name: meta?.name || data.project.title || "Projet",
+    done: 0,
+    total: data.media.length,
+  };
+  skipPromise = new Promise<void>((r) => (skipResolve = r));
   try {
     return await openData(id, data, meta);
   } finally {
     openProgress.value = null;
+    skipResolve = null;
   }
 }
 
-async function openData(id: string, data: ProjectData, meta: ProjectMeta | undefined) {
-  phase('Accès aux dossiers');
-  const srcs = await attachHandles(id, data.sources ?? []).catch(() => [] as MediaSource[]);
+async function openData(
+  id: string,
+  data: ProjectData,
+  meta: ProjectMeta | undefined,
+) {
+  phase("Accès aux dossiers");
+  const plain = (data.sources ?? []).map((x) => {
+    const { linked: _l, ...y } = x as MediaSource & { linked?: boolean };
+    void _l;
+    return { ...y } as MediaSource;
+  });
+  const srcs = await within(attachHandles(id, data.sources ?? []), 6000, plain);
   const items = await restoreMedia(data.media, srcs);
   let mfile: File | null = null;
   try {
     if (data.music) {
-      const b = await getBlob(data.music.key);
-      if (b) mfile = new File([b], data.music.name, { type: data.music.type || b.type });
+      const b = await within(getBlob(data.music.key), 10000, null);
+      if (b)
+        mfile = new File([b], data.music.name, {
+          type: data.music.type || b.type,
+        });
     }
   } catch {
     /* morceau indisponible : on garde le reste */
@@ -431,15 +577,19 @@ async function openData(id: string, data: ProjectData, meta: ProjectMeta | undef
   batch(() => {
     currentProjectId.value = id;
     media.value = items;
-    project.value = migrateProject({ ...defaultProject(), ...data.project, music: { ...defaultProject().music, ...data.project.music } });
+    project.value = migrateProject({
+      ...defaultProject(),
+      ...data.project,
+      music: { ...defaultProject().music, ...data.project.music },
+    });
     importOpts.value = { ...DEFAULT_OPTS, ...data.importOpts };
     sources.value = srcs;
     musicFile.value = mfile;
     musicBuffer.value = null;
     selectedClip.value = null;
     playhead.value = 0;
-    page.value = data.project.clips.length ? 'edit' : 'media';
-    saveState.value = 'saved';
+    page.value = data.project.clips.length ? "edit" : "media";
+    saveState.value = "saved";
     savedAt.value = meta?.updated ?? Date.now();
   });
   resetHistory();
@@ -447,21 +597,34 @@ async function openData(id: string, data: ProjectData, meta: ProjectMeta | undef
   // dossiers mémorisés : accès à réautoriser, sinon actualisation automatique (nouveaux fichiers)
   const pending: MediaSource[] = [];
   try {
-    for (const x of srcs) if (x.handle && !(await ensurePermission(x.handle, false))) pending.push(x);
+    for (const x of srcs)
+      if (
+        x.handle &&
+        !(await within(ensurePermission(x.handle, false), 3000, false))
+      )
+        pending.push(x);
     pendingAccess.value = pending;
     // le projet est ouvert : la suite (musique, relecture des dossiers) ne doit jamais l'empêcher
-    const actions = await import('./actions');
+    const actions = await import("./actions");
     void actions.prepareMusic(true).catch(() => null);
-    if (srcs.some((x) => x.handle) && !pending.length) void actions.rescanAll(false).then(() => actions.rereadDates(true)).catch(() => null);
+    if (srcs.some((x) => x.handle) && !pending.length)
+      void actions
+        .rescanAll(false)
+        .then(() => actions.rereadDates(true))
+        .catch(() => null);
     else void actions.rereadDates(true).catch(() => null);
   } catch (e) {
-    console.warn('[editgo] après ouverture :', e);
+    console.warn("[editgo] après ouverture :", e);
   }
-  return items.filter((m) => m.missing && !(m.sourceId && pending.some((x) => x.id === m.sourceId))).length;
+  return items.filter(
+    (m) =>
+      m.missing && !(m.sourceId && pending.some((x) => x.id === m.sourceId)),
+  ).length;
 }
 
 export function newProject() {
-  for (const m of media.value) if (m.thumb.startsWith('blob:')) URL.revokeObjectURL(m.thumb);
+  for (const m of media.value)
+    if (m.thumb.startsWith("blob:")) URL.revokeObjectURL(m.thumb);
   quiet();
   clearTimeout(timer);
   batch(() => {
@@ -474,19 +637,20 @@ export function newProject() {
     musicBuffer.value = null;
     selectedClip.value = null;
     playhead.value = 0;
-    page.value = 'media';
-    saveState.value = 'idle';
+    page.value = "media";
+    saveState.value = "idle";
   });
   resetHistory();
 }
 
 export async function renameProject(id: string, name: string) {
-  const s = await store('meta', 'readwrite');
+  const s = await store("meta", "readwrite");
   const meta = (await req(s.get(id))) as ProjectMeta | undefined;
   if (!meta) return;
   meta.name = name;
-  await req((await store('meta', 'readwrite')).put(meta));
-  if (id === currentProjectId.value) project.value = { ...project.value, title: name };
+  await req((await store("meta", "readwrite")).put(meta));
+  if (id === currentProjectId.value)
+    project.value = { ...project.value, title: name };
   projectsRev.value++;
 }
 
@@ -495,25 +659,29 @@ export async function deleteProject(id: string) {
   const d = await db();
   // vignettes du projet supprimé
   try {
-    const data = (await req((await store('data')).get(id))) as ProjectData | undefined;
+    const data = (await req((await store("data")).get(id))) as
+      | ProjectData
+      | undefined;
     if (data) {
-      const st = await store('blobs', 'readwrite');
-      for (const m of data.media) st.delete('thumb:' + m.id);
+      const st = await store("blobs", "readwrite");
+      for (const m of data.media) st.delete("thumb:" + m.id);
     }
   } catch {
     /* rien */
   }
   await new Promise<void>((res, rej) => {
-    const tx = d.transaction(['meta', 'data', 'handles'], 'readwrite');
-    tx.objectStore('meta').delete(id);
-    tx.objectStore('data').delete(id);
-    tx.objectStore('handles').delete(IDBKeyRange.bound(id + ':', id + ':\uffff'));
+    const tx = d.transaction(["meta", "data", "handles"], "readwrite");
+    tx.objectStore("meta").delete(id);
+    tx.objectStore("data").delete(id);
+    tx.objectStore("handles").delete(
+      IDBKeyRange.bound(id + ":", id + ":\uffff"),
+    );
     tx.oncomplete = () => res();
     tx.onerror = () => rej(tx.error);
   });
   if (currentProjectId.value === id) currentProjectId.value = null;
   // ramasse-miettes des fichiers orphelins
-  const all = (await req((await store('data')).getAll())) as ProjectData[];
+  const all = (await req((await store("data")).getAll())) as ProjectData[];
   const used = new Set<string>();
   for (const p of all) {
     for (const m of p.media) if (m.fileKey) used.add(m.fileKey);
@@ -524,13 +692,22 @@ export async function deleteProject(id: string) {
   const keys: string[] = [];
   if (dir) {
     // @ts-expect-error itération asynchrone des entrées
-    for await (const [name] of dir.entries()) if (name !== '.probe') keys.push(name);
-  } else keys.push(...((await req((await store('blobs')).getAllKeys())) as string[]).filter((k) => !String(k).startsWith('thumb:')));
+    for await (const [name] of dir.entries())
+      if (name !== ".probe") keys.push(name);
+  } else
+    keys.push(
+      ...((await req((await store("blobs")).getAllKeys())) as string[]).filter(
+        (k) => !String(k).startsWith("thumb:"),
+      ),
+    );
   for (const k of keys) if (!used.has(k)) await deleteBlob(k);
   projectsRev.value++;
 }
 
-export async function storageEstimate(): Promise<{ usage: number; quota: number } | null> {
+export async function storageEstimate(): Promise<{
+  usage: number;
+  quota: number;
+} | null> {
   try {
     const e = await navigator.storage?.estimate?.();
     return e ? { usage: e.usage ?? 0, quota: e.quota ?? 0 } : null;
@@ -540,38 +717,54 @@ export async function storageEstimate(): Promise<{ usage: number; quota: number 
 }
 
 // ---------- Fichier projet (sauvegarde / transfert) ----------
-export async function exportProjectFile(): Promise<{ blob: Blob; name: string }> {
+export async function exportProjectFile(): Promise<{
+  blob: Blob;
+  name: string;
+}> {
   const items = await serializeMedia(media.value);
   const body = {
-    app: 'editgo',
+    app: "editgo",
     version: 1,
     savedAt: new Date().toISOString(),
     project: project.value,
     importOpts: importOpts.value,
     media: items,
   };
-  const name = (project.value.title || 'projet').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w-]+/g, '-').toLowerCase();
-  return { blob: new Blob([JSON.stringify(body)], { type: 'application/json' }), name: `${name || 'projet'}.editgo.json` };
+  const name = (project.value.title || "projet")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^\w-]+/g, "-")
+    .toLowerCase();
+  return {
+    blob: new Blob([JSON.stringify(body)], { type: "application/json" }),
+    name: `${name || "projet"}.editgo.json`,
+  };
 }
 
 export async function importProjectFile(file: File): Promise<number> {
   const body = JSON.parse(await file.text());
-  if (body?.app !== 'editgo' || !Array.isArray(body.media)) throw new Error('Ce fichier n’est pas un projet EditGo.');
+  if (body?.app !== "editgo" || !Array.isArray(body.media))
+    throw new Error("Ce fichier n’est pas un projet EditGo.");
   newProject();
-  const items = await restoreMedia(body.media.map((m: StoredMedia) => ({ ...m, thumbBlob: null })));
+  const items = await restoreMedia(
+    body.media.map((m: StoredMedia) => ({ ...m, thumbBlob: null })),
+  );
   // vignettes régénérées pour les fichiers retrouvés sur l'appareil
-  const { analyzeFile } = await import('../media/analyze');
+  const { analyzeFile } = await import("../media/analyze");
   for (const it of items) {
     if (it.file && !it.thumb) {
       const a = await analyzeFile(it.file, it.path).catch(() => null);
       if (a) it.thumb = a.thumb;
-    } else if (it.demo && !it.thumb) it.thumb = it.demo.draw(240, Math.round((240 * it.height) / it.width)).toDataURL('image/jpeg', 0.8);
+    } else if (it.demo && !it.thumb)
+      it.thumb = it.demo
+        .draw(240, Math.round((240 * it.height) / it.width))
+        .toDataURL("image/jpeg", 0.8);
   }
   batch(() => {
     media.value = items;
     project.value = migrateProject({ ...defaultProject(), ...body.project });
     importOpts.value = body.importOpts ?? importOpts.value;
-    page.value = body.project?.clips?.length ? 'edit' : 'media';
+    page.value = body.project?.clips?.length ? "edit" : "media";
   });
   resetHistory();
   await saveCurrent();
@@ -601,23 +794,25 @@ export function startAutosave() {
     if (!media.peek().length || Date.now() < quietUntil) return;
     clearTimeout(timer);
     // peek() : lire l'état sans s'y abonner (sinon chaque enregistrement en relançait un autre, en boucle)
-    if (saveState.peek() !== 'saving') saveState.value = 'idle';
+    if (saveState.peek() !== "saving") saveState.value = "idle";
     timer = window.setTimeout(() => void saveCurrent(), 3000);
   });
 }
 
-const GUARD = 'editgo-reading-handles';
+const GUARD = "editgo-reading-handles";
 /** Vrai si une relecture d'accès aux dossiers a fait planter le navigateur au lancement précédent. */
-export const handlesUnsafe = signal((() => {
-  try {
-    return false;
-  } catch {
-    return false;
-  }
-})());
+export const handlesUnsafe = signal(
+  (() => {
+    try {
+      return false;
+    } catch {
+      return false;
+    }
+  })(),
+);
 try {
   // un témoin resté posé = le navigateur s'est arrêté pendant la relecture
-  if (localStorage.getItem(GUARD) === 'reading') {
+  if (localStorage.getItem(GUARD) === "reading") {
     handlesUnsafe.value = true;
   }
   // la prochaine ouverture retentera la relecture
@@ -627,18 +822,26 @@ try {
 }
 
 /** Relit les accès mémorisés aux dossiers d'un projet (avec garde-fou anti-plantage). */
-async function attachHandles(projectId: string, srcs: (MediaSource & { linked?: boolean })[]): Promise<MediaSource[]> {
-  const out = srcs.map(({ linked: _l, ...x }) => (void _l, { ...x }) as MediaSource);
-  if (!srcs.some((x) => x.linked || x.handle) || handlesUnsafe.value) return out;
+async function attachHandles(
+  projectId: string,
+  srcs: (MediaSource & { linked?: boolean })[],
+): Promise<MediaSource[]> {
+  const out = srcs.map(
+    ({ linked: _l, ...x }) => (void _l, { ...x }) as MediaSource,
+  );
+  if (!srcs.some((x) => x.linked || x.handle) || handlesUnsafe.value)
+    return out;
   try {
-    localStorage.setItem(GUARD, 'reading');
+    localStorage.setItem(GUARD, "reading");
   } catch {
     /* sans garde-fou */
   }
   try {
-    const st = await store('handles');
+    const st = await store("handles");
     for (const x of out) {
-      const h = (await req(st.get(projectId + ':' + x.id))) as FileSystemDirectoryHandle | undefined;
+      const h = (await req(st.get(projectId + ":" + x.id))) as
+        | FileSystemDirectoryHandle
+        | undefined;
       if (h) x.handle = h;
     }
   } catch {
@@ -656,10 +859,11 @@ async function attachHandles(projectId: string, srcs: (MediaSource & { linked?: 
 export async function grantPendingAccess() {
   const list = pendingAccess.value;
   const ok: MediaSource[] = [];
-  for (const x of list) if (x.handle && (await ensurePermission(x.handle, true))) ok.push(x);
+  for (const x of list)
+    if (x.handle && (await ensurePermission(x.handle, true))) ok.push(x);
   pendingAccess.value = list.filter((x) => !ok.includes(x));
   // une seule lecture de chaque dossier rattache tous ses fichiers (et trouve les nouveaux)
-  const actions = await import('./actions');
+  const actions = await import("./actions");
   for (const x of ok) await actions.rescanSource(x.id, false);
   void actions.rereadDates(true);
 }

@@ -8,9 +8,10 @@ import { viteSingleFile } from 'vite-plugin-singlefile';
 //  - « --mode single » : un seul fichier HTML autonome (artefact testable, clé USB…).
 export default defineConfig(({ mode }) => {
   const single = mode === 'single';
+  const build = new Date().toISOString();
   return {
     base: './',
-    define: { __SINGLE__: JSON.stringify(single), __BUILD__: JSON.stringify(new Date().toISOString()) },
+    define: { __SINGLE__: JSON.stringify(single), __BUILD__: JSON.stringify(build) },
     build: {
       outDir: single ? 'dist-single' : 'dist',
       target: 'es2022',
@@ -20,6 +21,14 @@ export default defineConfig(({ mode }) => {
     plugins: single
       ? [viteSingleFile()]
       : [
+          // version publiée, lue sans cache au démarrage : détecte une mise à jour même si le
+          // service worker ne l'a pas encore signalée
+          {
+            name: 'editgo-version',
+            generateBundle() {
+              this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build }) });
+            },
+          },
           VitePWA({
             injectRegister: null,
             registerType: 'autoUpdate',

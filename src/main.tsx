@@ -37,8 +37,18 @@ if (!__SINGLE__ && 'serviceWorker' in navigator && location.protocol === 'https:
     navigator.serviceWorker
       .register('./sw.js', { scope: './' })
       .then((reg) => {
-        // vérifie les mises à jour à l'ouverture, au retour sur l'onglet et toutes les 30 min
-        const check = () => void reg.update().catch(() => null);
+        // vérifie les mises à jour à l'ouverture, au retour sur l'onglet et toutes les 30 min :
+        // le fichier version.json (jamais mis en cache) dit si une version plus récente est publiée
+        const check = () => {
+          void reg.update().catch(() => null);
+          void fetch('./version.json?t=' + Date.now(), { cache: 'no-store' })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((v: { build?: string } | null) => {
+              if (v?.build && v.build > __BUILD__) updateReady.value = true;
+            })
+            .catch(() => null);
+        };
+        check();
         document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && check());
         setInterval(check, 30 * 60 * 1000);
       })
