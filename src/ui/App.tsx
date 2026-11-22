@@ -1,7 +1,7 @@
 import { useEffect } from 'preact/hooks';
 import { updateReady, canRedo, canUndo, historyRev, media, page, playhead, playing, project, redo, removeClip, selectedClip, timeline, undo, updateProject, type Page } from '../state/store';
 import { autoCreate, nudgeClip, setVideoBounds } from '../state/actions';
-import { ProjectsPanel, SaveIndicator, projectsOpen } from './Projects';
+import { OpeningOverlay, ProjectsPanel, SaveIndicator, projectsOpen } from './Projects';
 import { AccessBanner } from './Sources';
 import { Guide, guideOpen } from './Guide';
 import { MediaPage } from './MediaPage';
@@ -197,6 +197,7 @@ export function App() {
       </main>
       <Steps cls="bottom-nav" />
       <ProjectsPanel />
+      <OpeningOverlay />
       <Guide />
       <Toasts />
     </div>

@@ -43,6 +43,8 @@ export const saveState = signal<'idle' | 'saving' | 'saved' | 'error'>('idle');
 export const saveProgress = signal<{ done: number; total: number } | null>(null);
 /** Heure du dernier enregistrement réussi. */
 export const savedAt = signal<number>(0);
+/** Ouverture d'un projet en cours (progression affichée). */
+export const openProgress = signal<{ name: string; done: number; total: number } | null>(null);
 export const projectsRev = signal(0);
 /** Dossiers mémorisés dont l'accès doit être réautorisé (clic requis par le navigateur). */
 export const pendingAccess = signal<MediaSource[]>([]);
@@ -335,8 +337,29 @@ async function restoreMedia(list: StoredMedia[], srcs: MediaSource[] = []): Prom
   }
   const granted = new Map<string, boolean>();
   for (const x of srcs) if (x.handle) granted.set(x.id, await ensurePermission(x.handle, false));
+  let done = 0;
+  const tick = () => {
+    done++;
+    const op = openProgress.peek();
+    if (op && (done % 5 === 0 || done === list.length)) openProgress.value = { ...op, done };
+  };
   return Promise.all(
     list.map(async (s) => {
+      try {
+        return await restoreOne(s);
+      } catch (e) {
+        // fichier illisible : le média reste dans le projet, signalé absent
+        console.warn('[editgo] média non restauré :', s.name, e);
+        const { fileKey: _k, fileType: _t, lastModified: _l, thumbBlob: _b, ...rest } = s;
+        void _k, void _t, void _l, void _b;
+        return { ...rest, file: null, thumb: '', missing: true } as MediaItem;
+      } finally {
+        tick();
+      }
+    }),
+  );
+
+  async function restoreOne(s: StoredMedia): Promise<MediaItem> {
       const { fileKey, fileType, lastModified, thumbBlob: tb0, ...rest } = s;
       const tb = tb0 ?? thumbs.get(s.id) ?? null;
       const item: MediaItem = { ...rest, file: null, thumb: tb ? URL.createObjectURL(tb) : '' };
@@ -356,19 +379,33 @@ async function restoreMedia(list: StoredMedia[], srcs: MediaSource[] = []): Prom
         }
       }
       return item;
-    }),
-  );
+  }
 }
 
 export async function openProject(id: string) {
   const data = (await req((await store('data')).get(id))) as ProjectData | undefined;
-  if (!data) throw new Error('Projet introuvable');
-  const srcs = await attachHandles(id, data.sources ?? []);
+  if (!data) throw new Error('projet introuvable dans ce navigateur');
+  if (!data.project || !Array.isArray(data.project.clips) || !Array.isArray(data.media)) throw new Error('données du projet incomplètes');
+  const meta = (await req((await store('meta')).get(id)).catch(() => undefined)) as ProjectMeta | undefined;
+  openProgress.value = { name: meta?.name || data.project.title || 'Projet', done: 0, total: data.media.length };
+  try {
+    return await openData(id, data, meta);
+  } finally {
+    openProgress.value = null;
+  }
+}
+
+async function openData(id: string, data: ProjectData, meta: ProjectMeta | undefined) {
+  const srcs = await attachHandles(id, data.sources ?? []).catch(() => [] as MediaSource[]);
   const items = await restoreMedia(data.media, srcs);
   let mfile: File | null = null;
-  if (data.music) {
-    const b = await getBlob(data.music.key);
-    if (b) mfile = new File([b], data.music.name, { type: data.music.type || b.type });
+  try {
+    if (data.music) {
+      const b = await getBlob(data.music.key);
+      if (b) mfile = new File([b], data.music.name, { type: data.music.type || b.type });
+    }
+  } catch {
+    /* morceau indisponible : on garde le reste */
   }
   quiet();
   batch(() => {
@@ -383,16 +420,23 @@ export async function openProject(id: string) {
     playhead.value = 0;
     page.value = data.project.clips.length ? 'edit' : 'media';
     saveState.value = 'saved';
+    savedAt.value = meta?.updated ?? Date.now();
   });
   resetHistory();
+  openProgress.value = null;
   // dossiers mémorisés : accès à réautoriser, sinon actualisation automatique (nouveaux fichiers)
   const pending: MediaSource[] = [];
-  for (const x of srcs) if (x.handle && !(await ensurePermission(x.handle, false))) pending.push(x);
-  pendingAccess.value = pending;
-  const actions = await import('./actions');
-  void actions.prepareMusic(true);
-  if (srcs.some((x) => x.handle) && !pending.length) void actions.rescanAll(false).then(() => actions.rereadDates(true));
-  else void actions.rereadDates(true);
+  try {
+    for (const x of srcs) if (x.handle && !(await ensurePermission(x.handle, false))) pending.push(x);
+    pendingAccess.value = pending;
+    // le projet est ouvert : la suite (musique, relecture des dossiers) ne doit jamais l'empêcher
+    const actions = await import('./actions');
+    void actions.prepareMusic(true).catch(() => null);
+    if (srcs.some((x) => x.handle) && !pending.length) void actions.rescanAll(false).then(() => actions.rereadDates(true)).catch(() => null);
+    else void actions.rereadDates(true).catch(() => null);
+  } catch (e) {
+    console.warn('[editgo] après ouverture :', e);
+  }
   return items.filter((m) => m.missing && !(m.sourceId && pending.some((x) => x.id === m.sourceId))).length;
 }
 

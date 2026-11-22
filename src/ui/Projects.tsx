@@ -14,6 +14,7 @@ import {
   saveProgress,
   saveState,
   savedAt,
+  openProgress,
   storageEstimate,
   type ProjectMeta,
 } from '../state/persist';
@@ -48,14 +49,35 @@ function Cover({ blob }: { blob: Blob | null }) {
 }
 
 async function open(id: string) {
+  if (openProgress.peek()) return;
+  projectsOpen.value = false;
   try {
     const missing = await openProject(id);
-    projectsOpen.value = false;
     if (missing) toast(`${missing} fichier(s) introuvable(s) : réimportez-les (même dossier) pour les réassocier.`, 'warn', 7000);
     else toast('Projet ouvert', 'ok', 1800);
   } catch (e) {
-    toast('Ouverture impossible : ' + (e as Error).message, 'error');
+    console.error('[editgo] ouverture :', e);
+    toast('Ouverture impossible : ' + ((e as Error)?.message || String(e)), 'error', 15000);
   }
+}
+
+/** Fenêtre de progression pendant l'ouverture d'un projet. */
+export function OpeningOverlay() {
+  const op = openProgress.value;
+  if (!op) return null;
+  return (
+    <div class="modal-back opening">
+      <div class="modal opening-card" role="status">
+        <b>Ouverture de « {op.name} »</b>
+        <div class="progress-line">
+          <i style={{ width: `${(op.done / Math.max(1, op.total)) * 100}%` }} />
+        </div>
+        <small>
+          {op.done} / {op.total} médias
+        </small>
+      </div>
+    </div>
+  );
 }
 
 const fmtDate = (t: number) => new Date(t).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' });

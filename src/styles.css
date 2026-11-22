@@ -4659,3 +4659,14 @@ label {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ouverture d'un projet */
+.opening-card {
+  display: grid;
+  gap: 10px;
+  width: min(360px, 100%);
+  text-align: center;
+}
+.opening-card small {
+  color: var(--muted);
+}
