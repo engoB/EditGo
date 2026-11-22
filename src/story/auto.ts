@@ -51,14 +51,6 @@ export function chapters(items: MediaItem[], gapHours: number): Chapter[] {
     const top = [...count.entries()].sort((a, b) => b[1] - a[1])[0];
     if (top && top[1] >= c.items.length * 0.6) c.event = top[0];
   }
-  // plusieurs moments le même jour : on précise le moment de la journée
-  const count = new Map<string, number>();
-  for (const c of out) count.set(c.label, (count.get(c.label) ?? 0) + 1);
-  for (const c of out) {
-    if ((count.get(c.label) ?? 0) < 2) continue;
-    const h = new Date(c.start).getHours();
-    c.label += h < 5 ? ' · la nuit' : h < 12 ? ' · le matin' : h < 18 ? ' · l’après-midi' : ' · le soir';
-  }
   return out;
 }
 

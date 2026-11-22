@@ -4,7 +4,7 @@
 //    dédupliquée par empreinte, pour rouvrir un projet sans réimporter.
 import { batch, effect, signal } from '@preact/signals';
 import type { ImportOptions, MediaItem, MediaSource, Project } from '../types';
-import { ensurePermission, resolveInSource } from '../media/sources';
+import { ensurePermission } from '../media/sources';
 import { importOpts, media, musicBuffer, musicFile, page, playhead, project, resetHistory, selectedClip, sources, timeline, defaultProject } from './store';
 import { demoDrawer } from '../media/demo';
 import { safeTransition } from '../presets';
@@ -44,7 +44,12 @@ export const saveProgress = signal<{ done: number; total: number } | null>(null)
 /** Heure du dernier enregistrement réussi. */
 export const savedAt = signal<number>(0);
 /** Ouverture d'un projet en cours (progression affichée). */
-export const openProgress = signal<{ name: string; done: number; total: number } | null>(null);
+export const openProgress = signal<{ name: string; done: number; total: number; phase?: string } | null>(null);
+const phase = (ph: string) => {
+  const op = openProgress.peek();
+  if (op) openProgress.value = { ...op, phase: ph };
+  console.info('[editgo] ouverture :', ph, Math.round(performance.now()));
+};
 export const projectsRev = signal(0);
 /** Dossiers mémorisés dont l'accès doit être réautorisé (clic requis par le navigateur). */
 export const pendingAccess = signal<MediaSource[]>([]);
@@ -320,6 +325,7 @@ async function copyMedia(items: MediaItem[], musicKey: string | null) {
 
 async function restoreMedia(list: StoredMedia[], srcs: MediaSource[] = []): Promise<MediaItem[]> {
   const thumbs = new Map<string, Blob>();
+  phase('Vignettes');
   try {
     const st = await store('blobs');
     await Promise.all(
@@ -336,15 +342,28 @@ async function restoreMedia(list: StoredMedia[], srcs: MediaSource[] = []): Prom
     /* vignettes indisponibles */
   }
   const granted = new Map<string, boolean>();
+  phase('Autorisations');
   for (const x of srcs) if (x.handle) granted.set(x.id, await ensurePermission(x.handle, false));
+  phase('Médias');
   let done = 0;
   const tick = () => {
     done++;
     const op = openProgress.peek();
-    if (op && (done % 5 === 0 || done === list.length)) openProgress.value = { ...op, done };
+    if (op) openProgress.value = { ...op, done };
   };
-  return Promise.all(
-    list.map(async (s) => {
+  const out: MediaItem[] = new Array(list.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(16, list.length) }, async () => {
+      while (next < list.length) {
+        const i = next++;
+        out[i] = await restoreSafe(list[i]);
+      }
+    }),
+  );
+  return out;
+
+  async function restoreSafe(s: StoredMedia): Promise<MediaItem> {
       try {
         return await restoreOne(s);
       } catch (e) {
@@ -356,8 +375,7 @@ async function restoreMedia(list: StoredMedia[], srcs: MediaSource[] = []): Prom
       } finally {
         tick();
       }
-    }),
-  );
+  }
 
   async function restoreOne(s: StoredMedia): Promise<MediaItem> {
       const { fileKey, fileType, lastModified, thumbBlob: tb0, ...rest } = s;
@@ -365,19 +383,20 @@ async function restoreMedia(list: StoredMedia[], srcs: MediaSource[] = []): Prom
       const item: MediaItem = { ...rest, file: null, thumb: tb ? URL.createObjectURL(tb) : '' };
       if (tb) thumbCache.set(item.thumb, tb);
       const src = s.sourceId ? srcs.find((x) => x.id === s.sourceId) : undefined;
-      if (s.demoSpec) item.demo = demoDrawer(s.demoSpec, s.width, s.height);
-      else if (src?.handle && granted.get(src.id) && (item.file = await resolveInSource(src.handle, s.path))) {
-        item.missing = false;
-      } else if (fileKey) {
-        const b = await getBlob(fileKey);
-        if (b) {
-          persisted.add(fileKey);
-          item.file = new File([b], s.name, { type: fileType || b.type, lastModified });
-          item.missing = false;
-        } else {
-          item.missing = true;
-        }
+      if (s.demoSpec) {
+        item.demo = demoDrawer(s.demoSpec, s.width, s.height);
+        return item;
       }
+      const b = fileKey ? await getBlob(fileKey) : null;
+      if (b) {
+        persisted.add(fileKey!);
+        item.file = new File([b], s.name, { type: fileType || b.type, lastModified });
+        item.missing = false;
+      } else if (src?.handle) {
+        // fichier d'un dossier mémorisé : rattaché juste après l'ouverture, en arrière-plan, par
+        // l'actualisation du dossier (relire ici 1000+ fichiers un à un bloquait l'ouverture)
+        void granted;
+      } else if (fileKey) item.missing = true;
       return item;
   }
 }
@@ -396,6 +415,7 @@ export async function openProject(id: string) {
 }
 
 async function openData(id: string, data: ProjectData, meta: ProjectMeta | undefined) {
+  phase('Accès aux dossiers');
   const srcs = await attachHandles(id, data.sources ?? []).catch(() => [] as MediaSource[]);
   const items = await restoreMedia(data.media, srcs);
   let mfile: File | null = null;
@@ -638,17 +658,8 @@ export async function grantPendingAccess() {
   const ok: MediaSource[] = [];
   for (const x of list) if (x.handle && (await ensurePermission(x.handle, true))) ok.push(x);
   pendingAccess.value = list.filter((x) => !ok.includes(x));
-  for (const x of ok) {
-    for (const m of media.value) {
-      if (m.sourceId !== x.id || (m.file && !m.missing)) continue;
-      const f = await resolveInSource(x.handle!, m.path);
-      if (f) {
-        m.file = f;
-        m.missing = false;
-      }
-    }
-  }
-  media.value = [...media.value];
+  // une seule lecture de chaque dossier rattache tous ses fichiers (et trouve les nouveaux)
   const actions = await import('./actions');
   for (const x of ok) await actions.rescanSource(x.id, false);
+  void actions.rereadDates(true);
 }

@@ -56,7 +56,16 @@ function computeGroups(items: MediaItem[], filter: Filter, gap: number) {
     else other.push(m);
   }
   if (other.length) groups.push({ label: 'Autres', items: other });
-  return { visible, chs, groups, flat: groups.flatMap((g) => g.items) };
+  // une seule rubrique par journée : les moments successifs du même jour sont réunis
+  const merged: Group[] = [];
+  for (const g of groups) {
+    const last = merged[merged.length - 1];
+    if (last && last.label === g.label) {
+      last.items.push(...g.items);
+      if (g.note && !last.note) last.note = g.note;
+    } else merged.push({ ...g, items: [...g.items] });
+  }
+  return { visible, chs, groups: merged, flat: merged.flatMap((g) => g.items) };
 }
 
 function useImporters() {
@@ -295,7 +304,8 @@ export function MediaPage() {
   const first = items[0]?.date,
     last = items[items.length - 1]?.date;
 
-  const { visible, chs, groups, flat } = groupMedia(items, filter, opts.chapterGapHours);
+  const { visible, groups, flat } = groupMedia(items, filter, opts.chapterGapHours);
+  const days = new Set(items.map((m) => new Date(m.date).toDateString())).size;
 
   return (
     <div class={'media-page' + (drop.over ? ' drop-over' : '')} {...drop.props}>
@@ -311,7 +321,7 @@ export function MediaPage() {
           )}
           {first && (
             <small>
-              {formatDayShort(first)} → {formatDayShort(last!)} · {chs.length} moments
+              {formatDayShort(first)} → {formatDayShort(last!)} · {days} jours
             </small>
           )}
         </div>
@@ -358,8 +368,8 @@ export function MediaPage() {
             <span>écartés</span>
           </div>
           <div>
-            <b>{chs.length}</b>
-            <span>moments</span>
+            <b>{days}</b>
+            <span>jours</span>
           </div>
         </div>
         {first && (

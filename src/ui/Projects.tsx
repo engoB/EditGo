@@ -73,7 +73,7 @@ export function OpeningOverlay() {
           <i style={{ width: `${(op.done / Math.max(1, op.total)) * 100}%` }} />
         </div>
         <small>
-          {op.done} / {op.total} médias
+          {op.phase && op.phase !== 'Médias' ? op.phase + '…' : `${op.done} / ${op.total} médias`}
         </small>
       </div>
     </div>
