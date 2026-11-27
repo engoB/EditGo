@@ -36,6 +36,11 @@ import { saveFile, fmtDuration, formatTime, timecode, uid } from '../util';
 let playerRef: Player | null = null;
 export const getPlayer = () => playerRef;
 
+/** Minutage : redessiné seul à chaque image, pas tout l'aperçu. */
+function Timecode({ fps }: { fps: number }) {
+  return <span class="tc">{timecode(playhead.value, fps)}</span>;
+}
+
 function Viewer() {
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -108,7 +113,7 @@ function Viewer() {
         )}
       </div>
       <div class="transport">
-        <span class="tc">{timecode(playhead.value, fps)}</span>
+        <Timecode fps={fps} />
         <div class="transport-btns">
           <button class="ibtn" title="Début (Origine)" onClick={() => step(-1e9)}>
             <Icon name="skipBack" size={15} />

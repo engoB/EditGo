@@ -17,6 +17,9 @@ export class FrameReader {
   offset = 0;
   /** Rotation à appliquer (vidéos d'iPhone tournées en portrait : 90°). */
   rotation = 0;
+  /** Vidéo de caméscope entrelacée (AVCHD 1080i…) : lignes paires / impaires fondues. */
+  deinterlace = false;
+  private half: HTMLCanvasElement | null = null;
   private pool: HTMLCanvasElement[] = [];
   private poolIdx = 0;
 
@@ -56,6 +59,7 @@ export class FrameReader {
     if (!config) throw new Error('Codec vidéo non pris en charge par ce navigateur');
     const r = new FrameReader(input, new mb.EncodedPacketSink(vt), config, maxSide);
     r.rotation = ((vt.rotation ?? 0) % 360 + 360) % 360;
+    r.deinterlace = /\.(mts|m2ts|mod|tod|vob|mpe?g)$/i.test(file.name);
     r.offset = await vt.getFirstTimestamp();
     r.duration = Math.max(0, (await vt.computeDuration()) - r.offset);
     // dimensions réelles : première image décodée
@@ -86,6 +90,22 @@ export class FrameReader {
     this.height = dh;
     const c = this.canvasFor(w, h);
     const g = c.getContext('2d')!;
+    let img: CanvasImageSource = vf;
+    if (this.deinterlace) {
+      // désentrelacement simple : passage par une demi-hauteur (moyenne des deux trames),
+      // plus de lignes en peigne sur les mouvements
+      const hh = Math.max(2, Math.round(vf.displayHeight / 2));
+      this.half ??= document.createElement('canvas');
+      if (this.half.width !== vf.displayWidth || this.half.height !== hh) {
+        this.half.width = vf.displayWidth;
+        this.half.height = hh;
+      }
+      const hg = this.half.getContext('2d')!;
+      hg.imageSmoothingQuality = 'high';
+      hg.drawImage(vf, 0, 0, vf.displayWidth, hh);
+      img = this.half;
+    }
+    g.imageSmoothingQuality = 'high';
     if (rot) {
       // image codée « couchée » : on la redresse selon la rotation du conteneur
       g.save();
@@ -93,9 +113,9 @@ export class FrameReader {
       g.rotate((rot * Math.PI) / 180);
       const iw = side ? h : w,
         ih = side ? w : h;
-      g.drawImage(vf, -iw / 2, -ih / 2, iw, ih);
+      g.drawImage(img, -iw / 2, -ih / 2, iw, ih);
       g.restore();
-    } else g.drawImage(vf, 0, 0, w, h);
+    } else g.drawImage(img, 0, 0, w, h);
     const f = { canvas: c, timestamp: vf.timestamp / 1e6 - this.offset, duration: (vf.duration ?? 40000) / 1e6 };
     vf.close();
     return f;

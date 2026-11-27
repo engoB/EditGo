@@ -12,8 +12,6 @@ import {
   Mp4OutputFormat,
   Output,
   QUALITY_HIGH,
-  QUALITY_MEDIUM,
-  QUALITY_VERY_HIGH,
   WebMOutputFormat,
   getFirstEncodableAudioCodec,
   canEncodeAudio,
@@ -347,6 +345,19 @@ class ExportSources implements SourceProvider {
   }
 }
 
+/**
+ * Débit vidéo explicite : les préréglages de Mediabunny (≈ 6 Mbit/s en 1080p « haute », quelle que
+ * soit la cadence) pixelisaient les vidéos filmées à la main, le grain et les fondus.
+ * Référence H.264 1080p30 : 10 / 18 / 30 Mbit/s, ajustée à la résolution, la cadence et au codec.
+ */
+export function videoBitrate(job: Pick<ExportJob, 'width' | 'height' | 'fps' | 'quality'>, codec: string): number {
+  const ref = job.quality === 'max' ? 30e6 : job.quality === 'high' ? 18e6 : 10e6;
+  const px = Math.pow((job.width * job.height) / (1920 * 1080), 0.9);
+  const fr = Math.pow(job.fps / 30, 0.7);
+  const eff = codec === 'hevc' ? 0.65 : codec === 'vp9' ? 0.7 : codec === 'av1' ? 0.5 : 1;
+  return Math.round(Math.min(120e6, Math.max(2e6, ref * px * fr * eff)));
+}
+
 export async function runExport(opts: {
   project: Project;
   media: Map<string, MediaItem>;
@@ -362,8 +373,7 @@ export async function runExport(opts: {
   if (!placed.length || total <= 0) throw new Error('Le montage est vide.');
   const W = job.width,
     H = job.height;
-  const quality = job.quality === 'max' ? QUALITY_VERY_HIGH : job.quality === 'high' ? QUALITY_HIGH : QUALITY_MEDIUM;
-  const vcodec = await getFirstEncodableVideoCodec(VIDEO_PREFS[job.container], { width: W, height: H, quality, frameRate: job.fps });
+  const vcodec = await getFirstEncodableVideoCodec(VIDEO_PREFS[job.container], { width: W, height: H, bitrate: videoBitrate(job, 'avc'), frameRate: job.fps });
   if (!vcodec) throw new Error(`Aucun encodeur vidéo ${job.container.toUpperCase()} disponible pour ${W}×${H} sur ce navigateur.`);
   // son : on vérifie aussi le débit (l'encodeur AAC de Windows plafonne à 192 kbit/s)
   let acodec: AudioCodec | null = null;
@@ -427,7 +437,7 @@ export async function runExport(opts: {
         ? new StreamTarget(dest.writable as unknown as WritableStream<StreamTargetChunk>, { chunked: true, chunkSize: 16 * 1024 * 1024 })
         : new BufferTarget(),
   });
-  const videoSource = new CanvasSource(canvas, { codec: vcodec, bitrate: quality, keyFrameInterval: 2, latencyMode: 'quality' } as ConstructorParameters<typeof CanvasSource>[1]);
+  const videoSource = new CanvasSource(canvas, { codec: vcodec, bitrate: videoBitrate(job, vcodec), keyFrameInterval: 2, latencyMode: 'quality' } as ConstructorParameters<typeof CanvasSource>[1]);
   output.addVideoTrack(videoSource, { frameRate: job.fps });
   let audioSource: AudioBufferSource | null = null;
   if (acodec) {

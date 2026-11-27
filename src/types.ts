@@ -81,7 +81,7 @@ export type LookId = 'natural' | 'cinema' | 'golden' | 'film' | 'nordic' | 'mono
 export type TitleStyleId = 'cinema' | 'elegant' | 'bold' | 'minimal' | 'script' | 'chapter';
 export type AspectId = '16:9' | '9:16' | '1:1' | '4:5' | '21:9';
 export type ThemeId = 'cinema' | 'douceur' | 'energie' | 'argentique' | 'noirblanc' | 'epure';
-export type MusicMood = 'cinematic' | 'tender' | 'upbeat';
+export type MusicMood = 'cinematic' | 'tender' | 'upbeat' | 'nostalgic' | 'airy';
 
 export interface DemoSpec {
   scene: string;

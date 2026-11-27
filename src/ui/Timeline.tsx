@@ -78,6 +78,25 @@ function Waveform({ width, height }: { width: number; height: number }) {
   return <canvas ref={ref} class="wave" style={{ width: width + 'px', height: height + 'px' }} />;
 }
 
+/**
+ * Tête de lecture : seul composant redessiné à chaque image pendant la lecture (la timeline
+ * entière, avec ses centaines de plans, ne l'est plus — c'était la cause des saccades).
+ */
+function PlayheadLine({ zoom, scroller }: { zoom: number; scroller: { current: HTMLDivElement | null } }) {
+  const t = playhead.value;
+  useEffect(() => {
+    if (!playing.peek() || !scroller.current) return;
+    const el = scroller.current;
+    const x = PAD + t * zoom;
+    if (x > el.scrollLeft + el.clientWidth - 80 || x < el.scrollLeft) el.scrollLeft = x - 120;
+  }, [t]);
+  return (
+    <div class="playhead" style={{ left: PAD + t * zoom + 'px' }}>
+      <i />
+    </div>
+  );
+}
+
 export function Timeline() {
   const { placed, total } = timeline.value;
   const zoom = timelineZoom.value;
@@ -111,13 +130,6 @@ export function Timeline() {
   const width = Math.max(total * zoom + PAD * 2 + 24, 400);
   const sel = selectedClip.value;
 
-  // suit la tête de lecture pendant la lecture
-  useEffect(() => {
-    if (!playing.value || !scroller.current) return;
-    const el = scroller.current;
-    const x = PAD + playhead.value * zoom;
-    if (x > el.scrollLeft + el.clientWidth - 80 || x < el.scrollLeft) el.scrollLeft = x - 120;
-  }, [playhead.value]);
 
   const timeAt = (clientX: number) => {
     const el = scroller.current!;
@@ -469,9 +481,7 @@ export function Timeline() {
                 ) : null;
               })}
             </div>
-            <div class="playhead" style={{ left: PAD + playhead.value * zoom + 'px' }}>
-              <i />
-            </div>
+            <PlayheadLine zoom={zoom} scroller={scroller} />
           </div>
         </div>
       </div>

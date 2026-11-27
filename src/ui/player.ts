@@ -206,6 +206,13 @@ export class Player {
       effect(() => {
         this.src.gc(timeline.value.placed);
       }),
+      // musique changée pendant la lecture : on enchaîne aussitôt sur la nouvelle
+      effect(() => {
+        void musicBuffer.value;
+        untracked(() => {
+          if (playing.peek() && this.audio) this.startMusic(playhead.peek());
+        });
+      }),
     );
     this.loop = this.loop.bind(this);
     this.raf = requestAnimationFrame(this.loop);

@@ -119,11 +119,10 @@ void main() {
   } else if (uType == 2) {        // fondu au noir
     float a = smoothstep(0.0, 0.5, t), b = smoothstep(0.5, 1.0, t);
     col = A(uv) * (1.0 - a) * (t < 0.5 ? 1.0 : 0.0) + B(uv) * b * (t >= 0.5 ? 1.0 : 0.0);
-  } else if (uType == 3) {        // flash blanc
-    float f = pow(bell(t), 2.5);
-    col = mix(A(uv), B(uv), smoothstep(0.35, 0.65, t));
-    col = col + vec3(1.0, 0.98, 0.95) * f * 1.2;
-    col = col / (1.0 + f * 0.25);
+  } else if (uType == 3) {        // fondu au blanc (doux, sans flash)
+    float f = smoothstep(0.0, 1.0, bell(t));
+    col = mix(A(uv), B(uv), smoothstep(0.3, 0.7, t));
+    col = mix(col, vec3(1.0, 0.97, 0.93), f * 0.75);
   } else if (uType == 4) {        // flou dissolvant
     float lod = bell(t) * 5.5;
     col = mix(textureLod(uA, uv, lod).rgb, textureLod(uB, uv, lod).rgb, smoothstep(0.25, 0.75, t));

@@ -22,7 +22,7 @@ interface Done {
   label: string;
 }
 
-const BITRATE_EST: Record<QualityLevel, number> = { standard: 0.07, high: 0.12, max: 0.2 }; // bits par pixel par image (approx.)
+const BITRATE_EST: Record<QualityLevel, number> = { standard: 0.16, high: 0.29, max: 0.48 }; // bits par pixel par image (≈ débits de l'export)
 
 export function ExportPage() {
   const p = project.value;

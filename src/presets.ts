@@ -3,13 +3,10 @@ import type { AspectId, LookId, MusicMood, ThemeId, TitleStyleId, TransitionId }
 export const TRANSITIONS: { id: TransitionId; label: string }[] = [
   { id: 'fade', label: 'Fondu enchaîné' },
   { id: 'dipBlack', label: 'Fondu au noir' },
-  { id: 'dipWhite', label: 'Flash blanc' },
+  { id: 'dipWhite', label: 'Fondu au blanc' },
   { id: 'blur', label: 'Flou dissolvant' },
-  { id: 'push', label: 'Poussée' },
-  { id: 'lightLeak', label: 'Fuite de lumière' },
-  { id: 'filmBurn', label: 'Brûlure de pellicule' },
-  { id: 'ink', label: 'Encre' },
-  { id: 'cut', label: 'Coupe franche' },
+  { id: 'lightLeak', label: 'Voile de lumière' },
+  { id: 'cut', label: 'Sans transition' },
 ];
 
 export interface LookParams {
@@ -122,34 +119,34 @@ export interface Theme {
 
 export const THEMES: Record<ThemeId, Theme> = {
   cinema: {
-    label: 'Cinéma', tagline: 'Cadre large, teintes ciné, rythme posé', look: 'cinema', lookIntensity: 1, grain: 0.25, vignette: 0.45, bloom: 0.15,
+    label: 'Cinéma', tagline: 'Cadre large, teintes ciné, rythme posé', look: 'cinema', lookIntensity: 1, grain: 0.1, vignette: 0.4, bloom: 0.15,
     letterbox: true, title: 'cinema', chapterTitle: 'chapter', transitions: ['fade', 'blur', 'fade', 'lightLeak'], chapterTransition: 'dipBlack',
     transitionDuration: 1.0, photoDuration: 3.4, mood: 'cinematic', motion: 1,
   },
   douceur: {
-    label: 'Douceur', tagline: 'Lumière tendre, pastel et halo', look: 'dream', lookIntensity: 1, grain: 0.12, vignette: 0.25, bloom: 0.55,
+    label: 'Douceur', tagline: 'Lumière tendre, pastel et halo', look: 'dream', lookIntensity: 1, grain: 0.05, vignette: 0.25, bloom: 0.5,
     letterbox: false, title: 'elegant', chapterTitle: 'elegant', transitions: ['blur', 'fade', 'lightLeak', 'fade'], chapterTransition: 'lightLeak',
-    transitionDuration: 1.3, photoDuration: 3.8, mood: 'tender', motion: 0.8,
+    transitionDuration: 1.3, photoDuration: 3.8, mood: 'tender', motion: 0.7,
   },
   energie: {
-    label: 'Énergie', tagline: 'Coupes rythmées, couleurs vives', look: 'vivid', lookIntensity: 1, grain: 0.08, vignette: 0.3, bloom: 0.2,
-    letterbox: false, title: 'bold', chapterTitle: 'bold', transitions: ['push', 'cut', 'dipWhite', 'fade'], chapterTransition: 'dipWhite',
-    transitionDuration: 0.45, photoDuration: 1.9, mood: 'upbeat', motion: 1.3,
+    label: 'Énergie', tagline: 'Rythme vif, couleurs éclatantes', look: 'vivid', lookIntensity: 1, grain: 0.03, vignette: 0.25, bloom: 0.2,
+    letterbox: false, title: 'bold', chapterTitle: 'bold', transitions: ['fade', 'dipWhite', 'fade', 'blur'], chapterTransition: 'dipWhite',
+    transitionDuration: 0.7, photoDuration: 2.4, mood: 'upbeat', motion: 1,
   },
   argentique: {
-    label: 'Argentique', tagline: 'Pellicule, grain et brûlures', look: 'film', lookIntensity: 1, grain: 0.6, vignette: 0.5, bloom: 0.3,
-    letterbox: false, title: 'script', chapterTitle: 'chapter', transitions: ['fade', 'filmBurn', 'fade', 'lightLeak'], chapterTransition: 'filmBurn',
-    transitionDuration: 1.1, photoDuration: 3.2, mood: 'tender', motion: 0.9,
+    label: 'Argentique', tagline: 'Pellicule, grain léger, lumière chaude', look: 'film', lookIntensity: 1, grain: 0.22, vignette: 0.45, bloom: 0.3,
+    letterbox: false, title: 'script', chapterTitle: 'chapter', transitions: ['fade', 'lightLeak', 'fade', 'blur'], chapterTransition: 'lightLeak',
+    transitionDuration: 1.1, photoDuration: 3.2, mood: 'nostalgic', motion: 0.8,
   },
   noirblanc: {
-    label: 'Noir & blanc', tagline: 'Intemporel, contrasté', look: 'mono', lookIntensity: 1, grain: 0.4, vignette: 0.55, bloom: 0.1,
+    label: 'Noir & blanc', tagline: 'Intemporel, contrasté', look: 'mono', lookIntensity: 1, grain: 0.15, vignette: 0.5, bloom: 0.1,
     letterbox: true, title: 'cinema', chapterTitle: 'chapter', transitions: ['fade', 'dipBlack', 'blur', 'fade'], chapterTransition: 'dipBlack',
     transitionDuration: 1.0, photoDuration: 3.4, mood: 'cinematic', motion: 0.8,
   },
   epure: {
-    label: 'Épure', tagline: 'Naturel, net, minimal', look: 'natural', lookIntensity: 1, grain: 0.05, vignette: 0.15, bloom: 0.05,
-    letterbox: false, title: 'minimal', chapterTitle: 'minimal', transitions: ['fade', 'push', 'fade', 'ink'], chapterTransition: 'fade',
-    transitionDuration: 0.8, photoDuration: 2.8, mood: 'cinematic', motion: 0.7,
+    label: 'Épure', tagline: 'Naturel, net, minimal', look: 'natural', lookIntensity: 1, grain: 0, vignette: 0.15, bloom: 0.05,
+    letterbox: false, title: 'minimal', chapterTitle: 'minimal', transitions: ['fade', 'fade', 'blur', 'fade'], chapterTransition: 'dipBlack',
+    transitionDuration: 0.9, photoDuration: 3, mood: 'airy', motion: 0.6,
   },
 };
 
@@ -188,7 +185,8 @@ export function dimsFor(aspect: AspectId, short: number): { w: number; h: number
 }
 
 /** Transitions retirées : les anciens projets passent en fondu enchaîné. */
-const RETIRED = new Set(['zoom', 'whip', 'iris']);
+// transitions retirées (jugées saccadées) : remplacées par un fondu enchaîné
+const RETIRED = new Set(['zoom', 'whip', 'iris', 'push', 'filmBurn', 'ink']);
 export function safeTransition(t: string): TransitionId {
   return RETIRED.has(t) ? 'fade' : (t as TransitionId);
 }

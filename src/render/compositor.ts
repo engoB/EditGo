@@ -254,7 +254,9 @@ export class Compositor {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, null);
     if (d.src) {
-      const needsMips = mode === 1 || mode === 3;
+      // image réduite à l'écran : mipmaps, sinon les détails scintillent pendant les mouvements lents
+      const shrink = Math.max(d.src.w / Math.max(1, this.w), d.src.h / Math.max(1, this.h));
+      const needsMips = mode === 1 || mode === 3 || shrink > 1.2;
       const tex = this.texFor(d.src, needsMips);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, tex.tex);
@@ -290,7 +292,7 @@ export class Compositor {
         vw = Math.max(1, Math.round(w)),
         vh = Math.max(1, Math.round(h));
       gl.viewport(vx, vy, vw, vh);
-      const tex = this.texFor(c.src, false);
+      const tex = this.texFor(c.src, Math.max(c.src.w / Math.max(1, this.w * 0.5), c.src.h / Math.max(1, this.h * 0.5)) > 1.2);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, tex.tex);
       gl.uniform1i(P.u.uTex, 0);
